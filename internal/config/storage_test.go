@@ -87,7 +87,10 @@ func TestFileBackend_LoadSaveRoundtrip(t *testing.T) {
 			MaxConnectionDuration: 1 * time.Hour,
 		},
 		Auth: AuthConfig{
-			JWTSecret:   "test-secret",
+			JWTSecret: ConfigSource{
+				Type:  ConfigSourceTypePlain,
+				Value: "test-secret",
+			},
 			TokenExpiry: 24 * time.Hour,
 		},
 	}
@@ -115,8 +118,8 @@ func TestFileBackend_LoadSaveRoundtrip(t *testing.T) {
 	if loadedCfg.Server.Port != testCfg.Server.Port {
 		t.Errorf("Server.Port = %d, want %d", loadedCfg.Server.Port, testCfg.Server.Port)
 	}
-	if loadedCfg.Auth.JWTSecret != testCfg.Auth.JWTSecret {
-		t.Errorf("Auth.JWTSecret = %s, want %s", loadedCfg.Auth.JWTSecret, testCfg.Auth.JWTSecret)
+	if loadedCfg.Auth.JWTSecret.Value != testCfg.Auth.JWTSecret.Value {
+		t.Errorf("Auth.JWTSecret.Value = %s, want %s", loadedCfg.Auth.JWTSecret.Value, testCfg.Auth.JWTSecret.Value)
 	}
 }
 
@@ -253,7 +256,10 @@ func BenchmarkFileBackend_Save(b *testing.B) {
 			MaxConnectionDuration: 1 * time.Hour,
 		},
 		Auth: AuthConfig{
-			JWTSecret:   "test-secret",
+			JWTSecret: ConfigSource{
+				Type:  ConfigSourceTypePlain,
+				Value: "test-secret",
+			},
 			TokenExpiry: 24 * time.Hour,
 		},
 	}

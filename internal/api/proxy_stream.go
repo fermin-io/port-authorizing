@@ -95,9 +95,11 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = wsConn.Close() }()
 
 	// Setup ping/pong to keep connection alive (send pong in response to ping from client)
-	_ = wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	// Use connection expiry time as read deadline (typically 2 hours)
+	// This prevents premature disconnections while still enforcing MaxConnectionDuration
+	_ = wsConn.SetReadDeadline(conn.ExpiresAt)
 	wsConn.SetPongHandler(func(string) error {
-		_ = wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = wsConn.SetReadDeadline(conn.ExpiresAt)
 		return nil
 	})
 
@@ -261,9 +263,10 @@ func (s *Server) handlePostgresWebSocket(w http.ResponseWriter, r *http.Request)
 	defer func() { _ = wsConn.Close() }()
 
 	// Setup ping/pong keepalive
-	_ = wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	// Use connection expiry time as read deadline (typically 2 hours)
+	_ = wsConn.SetReadDeadline(conn.ExpiresAt)
 	wsConn.SetPongHandler(func(string) error {
-		_ = wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = wsConn.SetReadDeadline(conn.ExpiresAt)
 		return nil
 	})
 
@@ -275,6 +278,7 @@ func (s *Server) handlePostgresWebSocket(w http.ResponseWriter, r *http.Request)
 		connectionID,
 		s.config,
 		whitelist,
+		s.resolver,
 	)
 
 	// Set approval manager if enabled
@@ -342,9 +346,10 @@ func (s *Server) handleHTTPWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = wsConn.Close() }()
 
 	// Setup ping/pong keepalive
-	_ = wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	// Use connection expiry time as read deadline (typically 2 hours)
+	_ = wsConn.SetReadDeadline(conn.ExpiresAt)
 	wsConn.SetPongHandler(func(string) error {
-		_ = wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = wsConn.SetReadDeadline(conn.ExpiresAt)
 		return nil
 	})
 

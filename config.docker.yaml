@@ -1,3 +1,4 @@
+environment: mytest
 server:
   port: 8080
   max_connection_duration: 2h
@@ -23,12 +24,20 @@ auth:
 
   # Local users (for testing)
   users:
-    - username: admin
-      password: admin123
+    - username:
+        type: plain
+        value: admin
+      password:
+        type: plain
+        value: admin123
       roles:
         - admin
-    - username: developer
-      password: dev123
+    - username:
+        type: plain
+        value: developer
+      password:
+        type: plain
+        value: dev123
       roles:
         - developer
 
@@ -42,8 +51,12 @@ connections:
     tags:
       - env:test
       - type:database
-    backend_username: "testuser"
-    backend_password: "testpass"
+    backend_username:
+      type: plain
+      value: "testuser"
+    backend_password:
+      type: plain
+      value: "testpass"
     backend_database: "testdb"
     metadata:
       description: "Test PostgreSQL database (Docker)"
@@ -160,6 +173,7 @@ security:
   enable_llm_analysis: false
   llm_provider: "openai"
   llm_api_key: ""
+  config_source_cache_ttl: 1m  # How long to cache ConfigMap/Secret values (default: 1m)
 
 logging:
   audit_log_path: "stdout"
@@ -199,5 +213,7 @@ approval:
   webhook:
     url: "http://mock-approval:9000/webhook"  # Docker service name
   slack:  # Not needed for mock server
-    webhook_url: "https://hooks.slack.com/services/"
+    webhook_url:
+      type: plain
+      value: "https://hooks.slack.com/services/"
 

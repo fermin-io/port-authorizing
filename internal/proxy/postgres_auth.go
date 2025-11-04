@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"regexp"
 	"strings"
@@ -31,10 +32,11 @@ type PostgresAuthProxy struct {
 	apiConfig    *config.Config
 	whitelist    []string
 	approvalMgr  *approval.Manager
+	resolver     *config.ConfigSourceResolver
 }
 
 // NewPostgresAuthProxy creates a postgres proxy with auth handling
-func NewPostgresAuthProxy(cfg *config.ConnectionConfig, auditLogPath, username, connectionID string, apiConfig *config.Config, whitelist []string) *PostgresAuthProxy {
+func NewPostgresAuthProxy(cfg *config.ConnectionConfig, auditLogPath, username, connectionID string, apiConfig *config.Config, whitelist []string, resolver *config.ConfigSourceResolver) *PostgresAuthProxy {
 	return &PostgresAuthProxy{
 		config:       cfg,
 		auditLogPath: auditLogPath,
@@ -43,6 +45,7 @@ func NewPostgresAuthProxy(cfg *config.ConnectionConfig, auditLogPath, username, 
 		apiConfig:    apiConfig,
 		whitelist:    whitelist,
 		approvalMgr:  nil, // Will be set later if approvals are enabled
+		resolver:     resolver,
 	}
 }
 
@@ -113,6 +116,33 @@ func (p *PostgresAuthProxy) HandleConnection(clientConn net.Conn) error {
 		"note":          "password validation skipped - already authenticated via JWT",
 	})
 
+	// Resolve backend credentials dynamically (with caching)
+	ctx := context.Background()
+	backendUsername := p.config.BackendUsername.Value
+	backendPassword := p.config.BackendPassword.Value
+
+	// Resolve username if it's from ConfigMap/Secret
+	if p.resolver != nil && (p.config.BackendUsername.Type == config.ConfigSourceTypeConfigMap || p.config.BackendUsername.Type == config.ConfigSourceTypeSecret) {
+		resolvedUsername, exists, err := p.resolver.ResolveConfigSource(ctx, p.config.BackendUsername)
+		if err != nil || !exists {
+			log.Printf("Warning: Failed to resolve backend username for connection %s: %v (using stored value)", p.config.Name, err)
+		} else {
+			backendUsername = resolvedUsername
+			log.Printf("DEBUG: Resolved backend username for connection %s (type: %s)", p.config.Name, p.config.BackendUsername.Type)
+		}
+	}
+
+	// Resolve password if it's from ConfigMap/Secret
+	if p.resolver != nil && (p.config.BackendPassword.Type == config.ConfigSourceTypeConfigMap || p.config.BackendPassword.Type == config.ConfigSourceTypeSecret) {
+		resolvedPassword, exists, err := p.resolver.ResolveConfigSource(ctx, p.config.BackendPassword)
+		if err != nil || !exists {
+			log.Printf("Warning: Failed to resolve backend password for connection %s: %v (using stored value)", p.config.Name, err)
+		} else {
+			backendPassword = resolvedPassword
+			log.Printf("DEBUG: Resolved backend password for connection %s (type: %s)", p.config.Name, p.config.BackendPassword.Type)
+		}
+	}
+
 	// Connect to backend with BACKEND credentials
 	backendAddr := fmt.Sprintf("%s:%d", p.config.Host, p.config.Port)
 	backendConn, err := net.DialTimeout("tcp", backendAddr, 10*time.Second)
@@ -127,12 +157,12 @@ func (p *PostgresAuthProxy) HandleConnection(clientConn net.Conn) error {
 	if backendDB == "" {
 		backendDB = database
 	}
-	if err := p.sendBackendStartup(backendConn, p.config.BackendUsername, backendDB); err != nil {
+	if err := p.sendBackendStartup(backendConn, backendUsername, backendDB); err != nil {
 		return err
 	}
 
 	// Handle backend authentication
-	if err := p.handleBackendAuth(backendConn, p.config.BackendPassword); err != nil {
+	if err := p.handleBackendAuth(backendConn, backendPassword); err != nil {
 		p.sendAuthError(clientConn, "Backend authentication failed")
 		return fmt.Errorf("backend auth failed: %w", err)
 	}
@@ -346,12 +376,12 @@ func (p *PostgresAuthProxy) handleBackendAuth(conn net.Conn, password string) er
 						return fmt.Errorf("invalid MD5 auth message")
 					}
 					salt := body[4:8]
-					if err := p.sendBackendPasswordMD5(conn, password, p.config.BackendUsername, salt); err != nil {
+					if err := p.sendBackendPasswordMD5(conn, password, p.config.BackendUsername.Value, salt); err != nil {
 						return err
 					}
 				case 10:
 					// SCRAM-SHA-256 requested
-					if err := p.handleSCRAMAuth(conn, reader, password, p.config.BackendUsername); err != nil {
+					if err := p.handleSCRAMAuth(conn, reader, password, p.config.BackendUsername.Value); err != nil {
 						return err
 					}
 				default:
@@ -604,7 +634,7 @@ func (p *PostgresAuthProxy) validateAPICredentials(username, password string) bo
 	}
 
 	for _, user := range p.apiConfig.Auth.Users {
-		if user.Username == username && user.Password == password {
+		if user.Username.Value == username && user.Password.Value == password {
 			return true
 		}
 	}

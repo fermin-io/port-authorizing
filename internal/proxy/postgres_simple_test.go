@@ -12,8 +12,8 @@ func TestNewSimplePostgresProxy(t *testing.T) {
 		Type:            "postgres",
 		Host:            "localhost",
 		Port:            5432,
-		BackendUsername: "testuser",
-		BackendPassword: "testpass",
+		BackendUsername: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testuser"},
+		BackendPassword: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testpass"},
 		BackendDatabase: "testdb",
 	}
 
@@ -42,8 +42,8 @@ func BenchmarkNewSimplePostgresProxy(b *testing.B) {
 		Type:            "postgres",
 		Host:            "localhost",
 		Port:            5432,
-		BackendUsername: "testuser",
-		BackendPassword: "testpass",
+		BackendUsername: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testuser"},
+		BackendPassword: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testpass"},
 		BackendDatabase: "testdb",
 	}
 

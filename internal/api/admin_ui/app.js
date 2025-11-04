@@ -268,21 +268,44 @@ async function loadConnections() {
             return;
         }
 
+        // Fetch config errors to show warnings
+        let configErrors = null;
+        try {
+            const errorData = await apiCall('/config/errors');
+            configErrors = errorData?.errors?.connections || {};
+        } catch (err) {
+            console.warn('Failed to fetch config errors:', err);
+        }
+
         connections.forEach(conn => {
             const row = document.createElement('tr');
             const tags = conn.tags ? conn.tags.join(', ') : 'none';
             const duration = conn.duration || 'default';
+            
+            // Check for missing ConfigMaps/Secrets
+            let warningBadge = '';
+            if (configErrors && configErrors[conn.name]) {
+                const connErrors = configErrors[conn.name];
+                if ((connErrors.missing_configmaps && connErrors.missing_configmaps.length > 0) || 
+                    (connErrors.missing_secrets && connErrors.missing_secrets.length > 0)) {
+                    const missingResources = [
+                        ...(connErrors.missing_configmaps || []).map(cm => `ConfigMap: ${cm}`),
+                        ...(connErrors.missing_secrets || []).map(s => `Secret: ${s}`)
+                    ].join(', ');
+                    warningBadge = ` <span class="warning-badge" title="Missing: ${escapeHtml(missingResources)}" style="color: orange; cursor: help;">⚠️</span>`;
+                }
+            }
 
             row.innerHTML = `
-                <td>${conn.name || 'unnamed'}</td>
-                <td>${conn.type || 'unknown'}</td>
-                <td>${conn.host || '-'}</td>
+                <td>${escapeHtml(conn.name || 'unnamed')}${warningBadge}</td>
+                <td>${escapeHtml(conn.type || 'unknown')}</td>
+                <td>${escapeHtml(conn.host || '-')}</td>
                 <td>${conn.port || '-'}</td>
-                <td>${duration}</td>
-                <td>${tags}</td>
+                <td>${escapeHtml(duration)}</td>
+                <td>${escapeHtml(tags)}</td>
                 <td class="action-buttons">
-                    <button onclick="editConnection('${conn.name}')">Edit</button>
-                    <button class="danger" onclick="deleteConnection('${conn.name}')">Delete</button>
+                    <button onclick="editConnection('${escapeHtml(conn.name)}')">Edit</button>
+                    <button class="danger" onclick="deleteConnection('${escapeHtml(conn.name)}')">Delete</button>
                 </td>
             `;
             tbody.appendChild(row);
@@ -294,18 +317,58 @@ async function loadConnections() {
 }
 
 function showConnectionForm() {
-    document.getElementById('connection-form').style.display = 'block';
+    document.getElementById('connection-form-modal').style.display = 'flex';
     document.getElementById('connection-form-title').textContent = 'Add Connection';
     document.getElementById('connectionForm').reset();
     document.getElementById('connection-original-name').value = '';
+    
+    // Reset ConfigSource fields to plain
+    document.getElementById('conn-backend-username-type').value = 'plain';
+    document.getElementById('conn-backend-password-type').value = 'plain';
+    toggleConfigSourceFields('username');
+    toggleConfigSourceFields('password');
+    
     // Reset field visibility
     updateConnectionFields();
+    
+    // Prevent body scroll
+    document.body.style.overflow = 'hidden';
+}
+
+// Toggle between plain value and ConfigMap/Secret fields
+function toggleConfigSourceFields(fieldType) {
+    const type = document.getElementById(`conn-backend-${fieldType}-type`).value;
+    const plainFields = document.getElementById(`${fieldType}-plain-fields`);
+    const k8sFields = document.getElementById(`${fieldType}-k8s-fields`);
+    
+    if (type === 'plain') {
+        plainFields.style.display = 'block';
+        k8sFields.style.display = 'none';
+    } else {
+        plainFields.style.display = 'none';
+        k8sFields.style.display = 'block';
+    }
 }
 
 function hideConnectionForm() {
-    document.getElementById('connection-form').style.display = 'none';
+    document.getElementById('connection-form-modal').style.display = 'none';
     document.getElementById('connectionForm').reset();
+    
+    // Re-enable body scroll
+    document.body.style.overflow = '';
 }
+
+// Close modal when clicking outside
+document.addEventListener('DOMContentLoaded', function() {
+    const modal = document.getElementById('connection-form-modal');
+    if (modal) {
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                hideConnectionForm();
+            }
+        });
+    }
+});
 
 // Show/hide fields based on connection type
 function updateConnectionFields() {
@@ -332,18 +395,69 @@ async function editConnection(name) {
             return;
         }
 
-        document.getElementById('connection-form').style.display = 'block';
+        document.getElementById('connection-form-modal').style.display = 'flex';
         document.getElementById('connection-form-title').textContent = 'Edit Connection';
         document.getElementById('connection-original-name').value = name;
+        
+        // Prevent body scroll
+        document.body.style.overflow = 'hidden';
         document.getElementById('conn-name').value = conn.name;
         document.getElementById('conn-type').value = conn.type;
         document.getElementById('conn-host').value = conn.host;
         document.getElementById('conn-port').value = conn.port;
         document.getElementById('conn-tags').value = conn.tags ? conn.tags.join(', ') : '';
-        document.getElementById('conn-backend-username').value = conn.backend_username || '';
-        document.getElementById('conn-backend-database').value = conn.backend_database || '';
+        
+        // Update type-specific fields first
+        updateConnectionFields();
+        
+        // Populate backend username (ConfigSource)
+        console.log('Backend username data:', conn.backend_username);
+        if (conn.backend_username) {
+            if (typeof conn.backend_username === 'string') {
+                // Legacy plain string
+                console.log('backend_username is a string:', conn.backend_username);
+                document.getElementById('conn-backend-username-type').value = 'plain';
+                toggleConfigSourceFields('username');
+                document.getElementById('conn-backend-username').value = conn.backend_username;
+            } else if (conn.backend_username.type) {
+                // ConfigSource object
+                console.log('backend_username is ConfigSource, type:', conn.backend_username.type);
+                document.getElementById('conn-backend-username-type').value = conn.backend_username.type || 'plain';
+                toggleConfigSourceFields('username');
+                if (conn.backend_username.type === 'plain' || !conn.backend_username.type) {
+                    document.getElementById('conn-backend-username').value = conn.backend_username.value || '';
+                } else {
+                    document.getElementById('conn-backend-username-ref').value = conn.backend_username.ref || '';
+                    document.getElementById('conn-backend-username-refname').value = conn.backend_username.ref_name || '';
+                    document.getElementById('conn-backend-username-fallback').value = conn.backend_username.value || '';
+                }
+            } else {
+                console.log('backend_username exists but no type field:', conn.backend_username);
+            }
+        } else {
+            console.log('No backend_username found');
+            // Default to plain if no username
+            document.getElementById('conn-backend-username-type').value = 'plain';
+            toggleConfigSourceFields('username');
+        }
+        
         // Don't populate password field - let user enter new password or leave empty to keep existing
-        document.getElementById('conn-backend-password').value = '';
+        // But do show the type if it was a ConfigSource
+        if (conn.backend_password && typeof conn.backend_password === 'object' && conn.backend_password.type) {
+            document.getElementById('conn-backend-password-type').value = conn.backend_password.type;
+            toggleConfigSourceFields('password');
+            if (conn.backend_password.type !== 'plain') {
+                document.getElementById('conn-backend-password-ref').value = conn.backend_password.ref || '';
+                document.getElementById('conn-backend-password-refname').value = conn.backend_password.ref_name || '';
+                // Don't show fallback value for security
+            }
+        } else {
+            // Default to plain if no password info
+            document.getElementById('conn-backend-password-type').value = 'plain';
+            toggleConfigSourceFields('password');
+        }
+        
+        document.getElementById('conn-backend-database').value = conn.backend_database || '';
         
         // Populate duration (now comes as string from API)
         document.getElementById('conn-duration').value = conn.duration || '';
@@ -354,9 +468,6 @@ async function editConnection(name) {
         } else {
             document.getElementById('conn-metadata').value = '';
         }
-        
-        // Update visible fields based on type
-        updateConnectionFields();
     } catch (error) {
         showNotification('Failed to load connection: ' + error.message, 'error');
     }
@@ -411,14 +522,51 @@ async function saveConnection(event) {
         // Scheme is inferred from type
         connection.scheme = connType;
     } else if (connType === 'postgres') {
-        connection.backend_username = document.getElementById('conn-backend-username').value;
-        connection.backend_database = document.getElementById('conn-backend-database').value;
-        
-        // Only include password if it's provided (not empty)
-        const password = document.getElementById('conn-backend-password').value;
-        if (password) {
-            connection.backend_password = password;
+        // Build backend_username ConfigSource
+        const usernameType = document.getElementById('conn-backend-username-type').value;
+        if (usernameType === 'plain') {
+            const username = document.getElementById('conn-backend-username').value;
+            if (username) {
+                connection.backend_username = {
+                    type: 'plain',
+                    value: username
+                };
+            }
+        } else {
+            connection.backend_username = {
+                type: usernameType,
+                ref: document.getElementById('conn-backend-username-ref').value,
+                ref_name: document.getElementById('conn-backend-username-refname').value,
+                value: document.getElementById('conn-backend-username-fallback').value || ''
+            };
         }
+        
+        // Build backend_password ConfigSource
+        const passwordType = document.getElementById('conn-backend-password-type').value;
+        if (passwordType === 'plain') {
+            const password = document.getElementById('conn-backend-password').value;
+            // Only include password if it's provided (not empty)
+            if (password) {
+                connection.backend_password = {
+                    type: 'plain',
+                    value: password
+                };
+            }
+        } else {
+            // For ConfigMap/Secret, always include the reference even if password field is empty
+            const ref = document.getElementById('conn-backend-password-ref').value;
+            const refName = document.getElementById('conn-backend-password-refname').value;
+            if (ref && refName) {
+                connection.backend_password = {
+                    type: passwordType,
+                    ref: ref,
+                    ref_name: refName,
+                    value: document.getElementById('conn-backend-password-fallback').value || ''
+                };
+            }
+        }
+        
+        connection.backend_database = document.getElementById('conn-backend-database').value;
     }
 
     try {
@@ -840,6 +988,45 @@ async function loadDiff() {
     }
 }
 
+// Normalize ConfigSource objects for consistent comparison
+function normalizeConfigSource(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+    
+    if (Array.isArray(obj)) {
+        return obj.map(item => normalizeConfigSource(item));
+    }
+    
+    const normalized = {};
+    
+    // Sort keys for consistent serialization
+    Object.keys(obj).sort().forEach(key => {
+        const value = obj[key];
+        
+        // Normalize ConfigSource objects
+        if (value && typeof value === 'object' && 'type' in value && ('value' in value || 'ref' in value)) {
+            // This looks like a ConfigSource
+            normalized[key] = {
+                type: value.type || 'plain',
+                ...(value.value !== undefined && value.value !== '' && { value: value.value }),
+                ...(value.ref && { ref: value.ref }),
+                ...(value.ref_name && { ref_name: value.ref_name })
+            };
+        } else if (typeof value === 'string' && key.includes('password') || key.includes('secret') || key.includes('webhook')) {
+            // Legacy plain string - convert to ConfigSource for comparison
+            normalized[key] = {
+                type: 'plain',
+                value: value
+            };
+        } else if (value && typeof value === 'object') {
+            normalized[key] = normalizeConfigSource(value);
+        } else {
+            normalized[key] = value;
+        }
+    });
+    
+    return normalized;
+}
+
 function displayDiff(configA, configB, versionA, versionB) {
     const diffContainer = document.getElementById('diff-content');
     diffContainer.innerHTML = '';
@@ -858,8 +1045,12 @@ function displayDiff(configA, configB, versionA, versionB) {
         title.textContent = section.toUpperCase();
         sectionDiv.appendChild(title);
 
-        const jsonA = JSON.stringify(configA[section] || {}, null, 2);
-        const jsonB = JSON.stringify(configB[section] || {}, null, 2);
+        // Normalize both configs before comparison
+        const normalizedA = normalizeConfigSource(configA[section] || {});
+        const normalizedB = normalizeConfigSource(configB[section] || {});
+        
+        const jsonA = JSON.stringify(normalizedA, null, 2);
+        const jsonB = JSON.stringify(normalizedB, null, 2);
 
         if (jsonA === jsonB) {
             const unchanged = document.createElement('div');
@@ -967,6 +1158,82 @@ async function handleLogin(event) {
     }
 }
 
+// OIDC Login function
+function handleOIDCLogin() {
+    // Generate random state for CSRF protection
+    const state = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    localStorage.setItem('oidc_state', state);
+    localStorage.setItem('oidc_return_to', 'admin');
+    
+    // Redirect to OIDC login endpoint with state
+    // The callback will redirect back to /admin with token
+    window.location.href = `/api/auth/oidc/login?state=${state}&cli_callback=${encodeURIComponent(window.location.origin + '/admin/callback')}`;
+}
+
+// Handle OIDC callback (if coming from OIDC provider)
+function handleOIDCCallback() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenData = urlParams.get('token_data');
+    const state = urlParams.get('state');
+    
+    if (!tokenData || !state) {
+        return false; // Not an OIDC callback
+    }
+    
+    // Verify state matches
+    const savedState = localStorage.getItem('oidc_state');
+    if (state !== savedState) {
+        showNotification('OIDC state mismatch - possible CSRF attack', 'error');
+        return true;
+    }
+    
+    try {
+        // Decode token data (base64 URL encoded JSON)
+        const decoded = atob(tokenData);
+        const loginResp = JSON.parse(decoded);
+        
+        token = loginResp.token;
+        localStorage.setItem('token', token);
+        localStorage.removeItem('oidc_state');
+        localStorage.removeItem('oidc_return_to');
+        
+        // Check if user has admin role
+        try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            if (!payload.roles || !payload.roles.includes('admin')) {
+                throw new Error('Admin role required');
+            }
+        } catch (e) {
+            showNotification('Admin role required to access this area', 'error');
+            localStorage.removeItem('token');
+            token = null;
+            // Clear URL parameters and show login
+            window.history.replaceState({}, document.title, '/admin');
+            showLogin();
+            return true;
+        }
+        
+        // Clear URL parameters
+        window.history.replaceState({}, document.title, '/admin');
+        
+        // Show app
+        showApp();
+        showNotification('Successfully logged in via OIDC', 'success');
+        
+        return true;
+    } catch (error) {
+        console.error('OIDC callback error:', error);
+        showNotification('OIDC login failed: ' + error.message, 'error');
+        localStorage.removeItem('token');
+        localStorage.removeItem('oidc_state');
+        localStorage.removeItem('oidc_return_to');
+        token = null;
+        window.history.replaceState({}, document.title, '/admin');
+        showLogin();
+        return true;
+    }
+}
+
 // Logout function
 function logout() {
     // Stop any auto-refresh
@@ -1007,6 +1274,11 @@ async function showApp() {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
+    // Check if this is an OIDC callback
+    if (handleOIDCCallback()) {
+        return; // OIDC callback handled
+    }
+    
     if (!token) {
         showLogin();
     } else {
@@ -1348,14 +1620,27 @@ async function loadApprovals() {
         const providersInfo = document.getElementById('approval-providers-info');
         let providersHTML = '<h5>Configured Providers:</h5><ul>';
         
-        if (config.webhook && config.webhook.url) {
-            providersHTML += `<li><strong>Webhook:</strong> ${escapeHtml(config.webhook.url)}</li>`;
+        // Helper to display ConfigSource
+        const displayConfigSource = (cs) => {
+            if (!cs) return null;
+            if (typeof cs === 'string') return cs; // Legacy plain string
+            if (cs.type === 'plain' || !cs.type) return cs.value;
+            if (cs.type === 'secret') return `[From Secret: ${cs.ref || cs.ref_name}]`;
+            if (cs.type === 'configmap') return `[From ConfigMap: ${cs.ref || cs.ref_name}]`;
+            return cs.value || '[Not configured]';
+        };
+        
+        const webhookURL = config.webhook ? displayConfigSource(config.webhook.url) : null;
+        const slackURL = config.slack ? displayConfigSource(config.slack.webhook_url) : null;
+        
+        if (webhookURL) {
+            providersHTML += `<li><strong>Webhook:</strong> ${escapeHtml(webhookURL)}</li>`;
         }
-        if (config.slack && config.slack.webhook_url) {
-            providersHTML += `<li><strong>Slack:</strong> Configured (webhook URL hidden for security)</li>`;
+        if (slackURL) {
+            providersHTML += `<li><strong>Slack:</strong> ${escapeHtml(slackURL)}</li>`;
         }
         
-        if ((!config.webhook || !config.webhook.url) && (!config.slack || !config.slack.webhook_url)) {
+        if (!webhookURL && !slackURL) {
             providersHTML += '<li><em>No approval providers configured. Click "Configure Providers" to add webhook or Slack integration.</em></li>';
         }
         
@@ -1474,12 +1759,60 @@ async function deleteApprovalPattern(index) {
     }
 }
 
+function toggleProviderConfigSourceFields(provider) {
+    const type = document.getElementById(`${provider}-url-type`).value;
+    const plainFields = document.getElementById(`${provider}-plain-fields`);
+    const k8sFields = document.getElementById(`${provider}-k8s-fields`);
+    
+    if (type === 'plain') {
+        plainFields.style.display = 'block';
+        k8sFields.style.display = 'none';
+    } else {
+        plainFields.style.display = 'none';
+        k8sFields.style.display = 'block';
+    }
+}
+
 function showProvidersForm() {
     const config = window.currentApprovalConfig || {};
     
-    // Populate form with current values
-    document.getElementById('provider-webhook-url').value = (config.webhook && config.webhook.url) || '';
-    document.getElementById('provider-slack-url').value = (config.slack && config.slack.webhook_url) || '';
+    // Populate Webhook URL fields
+    if (config.webhook && config.webhook.url) {
+        const webhookCS = config.webhook.url;
+        const webhookType = webhookCS.type || 'plain';
+        document.getElementById('webhook-url-type').value = webhookType;
+        
+        if (webhookType === 'plain') {
+            document.getElementById('provider-webhook-url').value = webhookCS.value || '';
+        } else {
+            document.getElementById('webhook-url-ref').value = webhookCS.ref || '';
+            document.getElementById('webhook-url-ref-name').value = webhookCS.ref_name || 'url';
+        }
+        toggleProviderConfigSourceFields('webhook');
+    } else {
+        document.getElementById('webhook-url-type').value = 'plain';
+        document.getElementById('provider-webhook-url').value = '';
+        toggleProviderConfigSourceFields('webhook');
+    }
+    
+    // Populate Slack Webhook URL fields
+    if (config.slack && config.slack.webhook_url) {
+        const slackCS = config.slack.webhook_url;
+        const slackType = slackCS.type || 'plain';
+        document.getElementById('slack-url-type').value = slackType;
+        
+        if (slackType === 'plain') {
+            document.getElementById('provider-slack-url').value = slackCS.value || '';
+        } else {
+            document.getElementById('slack-url-ref').value = slackCS.ref || '';
+            document.getElementById('slack-url-ref-name').value = slackCS.ref_name || 'webhook_url';
+        }
+        toggleProviderConfigSourceFields('slack');
+    } else {
+        document.getElementById('slack-url-type').value = 'plain';
+        document.getElementById('provider-slack-url').value = '';
+        toggleProviderConfigSourceFields('slack');
+    }
     
     document.getElementById('providers-form').style.display = 'block';
 }
@@ -1492,22 +1825,52 @@ function hideProvidersForm() {
 async function saveProviders(event) {
     event.preventDefault();
     
-    const webhookUrl = document.getElementById('provider-webhook-url').value.trim();
-    const slackUrl = document.getElementById('provider-slack-url').value.trim();
-    
     const providers = {};
     
-    // Only include non-empty URLs
-    if (webhookUrl) {
-        providers.webhook = { url: webhookUrl };
+    // Build Webhook ConfigSource
+    const webhookType = document.getElementById('webhook-url-type').value;
+    if (webhookType === 'plain') {
+        const webhookUrl = document.getElementById('provider-webhook-url').value.trim();
+        providers.webhook = {
+            url: {
+                type: 'plain',
+                value: webhookUrl
+            }
+        };
     } else {
-        providers.webhook = { url: '' }; // Empty string to clear
+        const webhookRef = document.getElementById('webhook-url-ref').value.trim();
+        const webhookRefName = document.getElementById('webhook-url-ref-name').value.trim();
+        providers.webhook = {
+            url: {
+                type: webhookType,
+                ref: webhookRef,
+                ref_name: webhookRefName || 'url',
+                value: '' // Empty for ConfigMap/Secret types
+            }
+        };
     }
     
-    if (slackUrl) {
-        providers.slack = { webhook_url: slackUrl };
+    // Build Slack ConfigSource
+    const slackType = document.getElementById('slack-url-type').value;
+    if (slackType === 'plain') {
+        const slackUrl = document.getElementById('provider-slack-url').value.trim();
+        providers.slack = {
+            webhook_url: {
+                type: 'plain',
+                value: slackUrl
+            }
+        };
     } else {
-        providers.slack = { webhook_url: '' }; // Empty string to clear
+        const slackRef = document.getElementById('slack-url-ref').value.trim();
+        const slackRefName = document.getElementById('slack-url-ref-name').value.trim();
+        providers.slack = {
+            webhook_url: {
+                type: slackType,
+                ref: slackRef,
+                ref_name: slackRefName || 'webhook_url',
+                value: '' // Empty for ConfigMap/Secret types
+            }
+        };
     }
     
     try {

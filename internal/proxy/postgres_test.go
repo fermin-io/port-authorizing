@@ -12,8 +12,8 @@ func TestNewPostgresProxy(t *testing.T) {
 		Type:            "postgres",
 		Host:            "localhost",
 		Port:            5432,
-		BackendUsername: "testuser",
-		BackendPassword: "testpass",
+		BackendUsername: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testuser"},
+		BackendPassword: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testpass"},
 		BackendDatabase: "testdb",
 	}
 
@@ -24,7 +24,7 @@ func TestNewPostgresProxy(t *testing.T) {
 		},
 	}
 
-	proxy := NewPostgresProxy(connConfig, "", "user1", "conn-123", globalConfig)
+	proxy := NewPostgresProxy(connConfig, "", "user1", "conn-123", globalConfig, nil)
 
 	if proxy == nil {
 		t.Fatal("NewPostgresProxy() returned nil")
@@ -41,8 +41,8 @@ func TestPostgresProxy_Properties(t *testing.T) {
 		Type:            "postgres",
 		Host:            "localhost",
 		Port:            5432,
-		BackendUsername: "testuser",
-		BackendPassword: "testpass",
+		BackendUsername: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testuser"},
+		BackendPassword: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testpass"},
 		BackendDatabase: "testdb",
 	}
 
@@ -53,7 +53,7 @@ func TestPostgresProxy_Properties(t *testing.T) {
 		},
 	}
 
-	proxy := NewPostgresProxy(connConfig, "/tmp/audit.log", "user1", "conn-123", globalConfig)
+	proxy := NewPostgresProxy(connConfig, "/tmp/audit.log", "user1", "conn-123", globalConfig, nil)
 
 	if proxy.username != "user1" {
 		t.Errorf("username = %s, want 'user1'", proxy.username)
@@ -82,8 +82,8 @@ func BenchmarkNewPostgresProxy(b *testing.B) {
 		Type:            "postgres",
 		Host:            "localhost",
 		Port:            5432,
-		BackendUsername: "testuser",
-		BackendPassword: "testpass",
+		BackendUsername: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testuser"},
+		BackendPassword: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testpass"},
 		BackendDatabase: "testdb",
 	}
 
@@ -96,6 +96,6 @@ func BenchmarkNewPostgresProxy(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		NewPostgresProxy(connConfig, "", "user1", "conn-123", globalConfig)
+		NewPostgresProxy(connConfig, "", "user1", "conn-123", globalConfig, nil)
 	}
 }

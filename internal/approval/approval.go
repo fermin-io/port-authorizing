@@ -29,6 +29,7 @@ type Request struct {
 	Body         string
 	RequestedAt  time.Time
 	Metadata     map[string]string
+	Environment  string
 }
 
 // Response represents an approval response
@@ -51,6 +52,7 @@ type Provider interface {
 
 // Manager manages pending approval requests
 type Manager struct {
+	environment     string
 	providers       []Provider
 	pendingRequests map[string]*pendingRequest
 	mu              sync.RWMutex
@@ -72,12 +74,13 @@ type approvalPattern struct {
 }
 
 // NewManager creates a new approval manager
-func NewManager(defaultTimeout time.Duration) *Manager {
+func NewManager(defaultTimeout time.Duration, environment string) *Manager {
 	if defaultTimeout == 0 {
 		defaultTimeout = 5 * time.Minute // Default 5 minute timeout
 	}
 
 	return &Manager{
+		environment:     environment,
 		providers:       []Provider{},
 		pendingRequests: make(map[string]*pendingRequest),
 		defaultTimeout:  defaultTimeout,
@@ -191,6 +194,7 @@ func (m *Manager) RequestApproval(ctx context.Context, req *Request, timeout tim
 	// Generate unique request ID
 	req.ID = uuid.New().String()
 	req.RequestedAt = time.Now()
+	req.Environment = m.environment
 
 	// Create response channel
 	respChan := make(chan *Response, 1)
@@ -216,12 +220,34 @@ func (m *Manager) RequestApproval(ctx context.Context, req *Request, timeout tim
 	}()
 
 	// Send approval request to all providers
+	successfulProviders := 0
+	var providerErrors []string
+	
 	for _, provider := range m.providers {
 		if err := provider.SendApprovalRequest(ctx, req); err != nil {
-			// Log error but continue with other providers
+			// Log error and track it
+			errMsg := fmt.Sprintf("%s: %v", provider.GetProviderName(), err)
 			fmt.Printf("Error sending approval request to %s: %v\n", provider.GetProviderName(), err)
+			providerErrors = append(providerErrors, errMsg)
+		} else {
+			successfulProviders++
+			fmt.Printf("✓ Successfully sent approval request to %s\n", provider.GetProviderName())
 		}
 	}
+	
+	// SECURITY: If NO providers successfully sent the request, deny immediately
+	// This ensures that if approval is enabled but webhooks are down/misconfigured,
+	// access is denied rather than bypassed
+	if successfulProviders == 0 {
+		return &Response{
+			RequestID:   req.ID,
+			Decision:    DecisionRejected,
+			Reason:      fmt.Sprintf("approval request denied: all providers failed to send request (%s)", providerErrors),
+			RespondedAt: time.Now(),
+		}, nil
+	}
+	
+	fmt.Printf("Approval request sent to %d/%d providers, waiting for response...\n", successfulProviders, len(m.providers))
 
 	// Wait for response or timeout
 	select {
@@ -285,3 +311,4 @@ func (m *Manager) GetPendingRequestsCount() int {
 	defer m.mu.RUnlock()
 	return len(m.pendingRequests)
 }
+

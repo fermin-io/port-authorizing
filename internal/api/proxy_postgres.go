@@ -80,6 +80,7 @@ func (s *Server) handlePostgresProxy(w http.ResponseWriter, r *http.Request) {
 		connectionID,
 		s.config,
 		whitelist,
+		s.resolver,
 	)
 
 	// Set approval manager if enabled

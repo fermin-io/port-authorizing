@@ -5,21 +5,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
+
+	"github.com/davidcohan/port-authorizing/internal/config"
 )
 
 // SlackProvider sends approval requests to Slack with interactive buttons
 type SlackProvider struct {
-	webhookURL string
+	urlSource  config.ConfigSource
+	resolver   *config.ConfigSourceResolver
 	apiBaseURL string // Base URL of the API server for callbacks
 	client     *http.Client
 }
 
-// NewSlackProvider creates a new Slack approval provider
-func NewSlackProvider(webhookURL, apiBaseURL string) *SlackProvider {
+// NewSlackProvider creates a new Slack approval provider with dynamic URL resolution
+func NewSlackProvider(urlSource config.ConfigSource, resolver *config.ConfigSourceResolver, apiBaseURL string) *SlackProvider {
 	return &SlackProvider{
-		webhookURL: webhookURL,
+		urlSource:  urlSource,
+		resolver:   resolver,
 		apiBaseURL: apiBaseURL,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
@@ -57,6 +62,25 @@ type slackButton struct {
 
 // SendApprovalRequest sends an approval request to Slack with interactive buttons
 func (s *SlackProvider) SendApprovalRequest(ctx context.Context, req *Request) error {
+	// Resolve Slack webhook URL dynamically (with caching)
+	webhookURL := s.urlSource.Value
+	
+	if s.resolver != nil && (s.urlSource.Type == config.ConfigSourceTypeConfigMap || s.urlSource.Type == config.ConfigSourceTypeSecret) {
+		resolvedURL, exists, err := s.resolver.ResolveConfigSource(ctx, s.urlSource)
+		if err != nil || !exists {
+			log.Printf("Warning: Failed to resolve Slack webhook URL from %s (ref: %s): %v - using stored value", 
+				s.urlSource.Type, s.urlSource.Ref, err)
+		} else {
+			webhookURL = resolvedURL
+			log.Printf("DEBUG: Resolved Slack webhook URL from %s (ref: %s)", s.urlSource.Type, s.urlSource.Ref)
+		}
+	}
+	
+	// Check if Slack is disabled (empty URL)
+	if webhookURL == "" {
+		return fmt.Errorf("slack webhook URL is empty - provider is disabled")
+	}
+	
 	// Build Slack message with blocks
 	message := s.buildSlackMessage(req)
 
@@ -65,7 +89,7 @@ func (s *SlackProvider) SendApprovalRequest(ctx context.Context, req *Request) e
 		return fmt.Errorf("failed to marshal Slack message: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", s.webhookURL, bytes.NewBuffer(jsonData))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create Slack request: %w", err)
 	}
@@ -101,7 +125,7 @@ func (s *SlackProvider) buildSlackMessage(req *Request) slackMessage {
 				Type: "header",
 				Text: &slackTextBlock{
 					Type: "plain_text",
-					Text: "🔐 Command Approval Required",
+					Text: "🔐 Command Approval Required for Environment: " + req.Environment,
 				},
 			},
 			{

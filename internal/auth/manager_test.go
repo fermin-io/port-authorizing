@@ -18,7 +18,13 @@ func TestNewManager(t *testing.T) {
 			config: &config.Config{
 				Auth: config.AuthConfig{
 					Users: []config.User{
-						{Username: "admin", Password: "admin123", Roles: []string{"admin"}},
+						{Username: config.ConfigSource{
+							Type:  config.ConfigSourceTypePlain,
+							Value: "admin",
+						}, Password: config.ConfigSource{
+							Type:  config.ConfigSourceTypePlain,
+							Value: "admin123",
+						}, Roles: []string{"admin"}},
 					},
 				},
 			},
@@ -113,7 +119,13 @@ func TestNewManager(t *testing.T) {
 			config: &config.Config{
 				Auth: config.AuthConfig{
 					Users: []config.User{
-						{Username: "admin", Password: "admin123", Roles: []string{"admin"}},
+						{Username: config.ConfigSource{
+							Type:  config.ConfigSourceTypePlain,
+							Value: "admin",
+						}, Password: config.ConfigSource{
+							Type:  config.ConfigSourceTypePlain,
+							Value: "admin123",
+						}, Roles: []string{"admin"}},
 					},
 					Providers: []config.AuthProviderConfig{
 						{
@@ -140,7 +152,13 @@ func TestNewManager(t *testing.T) {
 			config: &config.Config{
 				Auth: config.AuthConfig{
 					Users: []config.User{
-						{Username: "admin", Password: "admin123", Roles: []string{"admin"}},
+						{Username: config.ConfigSource{
+							Type:  config.ConfigSourceTypePlain,
+							Value: "admin",
+						}, Password: config.ConfigSource{
+							Type:  config.ConfigSourceTypePlain,
+							Value: "admin123",
+						}, Roles: []string{"admin"}},
 					},
 					Providers: []config.AuthProviderConfig{
 						{
@@ -208,8 +226,20 @@ func TestManager_GetProviders(t *testing.T) {
 	config := &config.Config{
 		Auth: config.AuthConfig{
 			Users: []config.User{
-				{Username: "admin", Password: "admin123", Roles: []string{"admin"}},
-				{Username: "user", Password: "user123", Roles: []string{"user"}},
+				{Username: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "admin",
+				}, Password: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "admin123",
+				}, Roles: []string{"admin"}},
+				{Username: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "user",
+				}, Password: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "user123",
+				}, Roles: []string{"user"}},
 			},
 		},
 	}
@@ -264,7 +294,13 @@ func BenchmarkNewManager(b *testing.B) {
 	config := &config.Config{
 		Auth: config.AuthConfig{
 			Users: []config.User{
-				{Username: "admin", Password: "admin123", Roles: []string{"admin"}},
+				{Username: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "admin",
+				}, Password: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "admin123",
+				}, Roles: []string{"admin"}},
 			},
 		},
 	}

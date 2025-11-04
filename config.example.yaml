@@ -1,3 +1,4 @@
+environment: mytest
 server:
   port: 8080
   max_connection_duration: 2h
@@ -16,7 +17,23 @@ storage:
   # resource_name: port-authorizing-config
 
 auth:
+  # JWT Secret can be plain string (legacy) or from ConfigMap/Secret
   jwt_secret: "your-secret-key-change-this-in-production"
+  
+  # To read from Kubernetes Secret:
+  # jwt_secret:
+  #   type: secret
+  #   ref: port-authorizing-secrets
+  #   ref_name: jwt-secret
+  #   value: "fallback-value-if-secret-not-found"
+  
+  # To read from ConfigMap:
+  # jwt_secret:
+  #   type: configmap
+  #   ref: port-authorizing-config
+  #   ref_name: jwt-secret
+  #   value: "fallback-value-if-configmap-not-found"
+  
   token_expiry: 24h
 
   # Authentication providers (supports multiple)
@@ -34,10 +51,16 @@ auth:
       config:
         issuer: "http://localhost:8180/realms/portauth"
         client_id: "port-authorizing"
-        client_secret: "your-client-secret-change-in-production"
+        client_secret: "your-client-secret-change-in-production"  # Legacy: plain string
         redirect_url: "http://localhost:8080/api/auth/oidc/callback"
         roles_claim: "roles"
         username_claim: "preferred_username"
+      # Alternative: Read client_secret from Kubernetes Secret
+      # client_secret:
+      #   type: secret
+      #   ref: oidc-secrets
+      #   ref_name: client-secret
+      #   value: "fallback-value"
 
     # LDAP authentication
     - name: corporate-ldap
@@ -89,6 +112,7 @@ connections:
       - env:test
       - type:database
       - team:backend
+    # Backend credentials can be plain strings (legacy) or from ConfigMap/Secret
     backend_username: "testuser"
     backend_password: "testpass"
     backend_database: "testdb"
@@ -96,7 +120,7 @@ connections:
       description: "Test PostgreSQL database (Docker)"
       database: "testdb"
 
-  # PostgreSQL staging database
+  # PostgreSQL staging database (using ConfigMap/Secret for credentials)
   - name: postgres-staging
     type: postgres
     host: staging-db.example.com
@@ -106,14 +130,23 @@ connections:
       - env:staging
       - type:database
       - team:backend
-    backend_username: "staginguser"
-    backend_password: "stagingpass"
+    # Read credentials from Kubernetes Secret
+    backend_username:
+      type: secret
+      ref: postgres-staging-credentials
+      ref_name: username
+      value: "fallback-username"  # Used if Secret not found
+    backend_password:
+      type: secret
+      ref: postgres-staging-credentials
+      ref_name: password
+      value: "fallback-password"
     backend_database: "app"
     metadata:
       description: "Staging PostgreSQL database"
       environment: "staging"
 
-  # PostgreSQL production database
+  # PostgreSQL production database (using Secrets for credentials)
   - name: postgres-prod
     type: postgres
     host: prod-db.example.com
@@ -124,8 +157,15 @@ connections:
       - type:database
       - team:backend
       - critical:true
-    backend_username: "produser"
-    backend_password: "prodpass"
+    # RECOMMENDED: Use Secrets for production credentials
+    backend_username:
+      type: secret
+      ref: postgres-prod-credentials
+      ref_name: username
+    backend_password:
+      type: secret
+      ref: postgres-prod-credentials
+      ref_name: password
     backend_database: "app"
     metadata:
       description: "Production PostgreSQL database"
@@ -300,6 +340,7 @@ security:
   enable_llm_analysis: false
   llm_provider: "openai"
   llm_api_key: ""
+  config_source_cache_ttl: 1m  # How long to cache ConfigMap/Secret values (default: 1m)
 
 logging:
 # audit_log_path: "stdout"
@@ -337,4 +378,12 @@ approval:
 
   # Slack integration for approvals (with interactive buttons)
   slack:
-    webhook_url: "https://hooks.slack.com/services/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"
+    # Webhook URL can be plain string (legacy) or from ConfigMap/Secret
+    webhook_url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+    
+    # RECOMMENDED: Read from Kubernetes Secret for production
+    # webhook_url:
+    #   type: secret
+    #   ref: slack-secrets
+    #   ref_name: webhook-url
+    #   value: "fallback-url-if-secret-not-found"

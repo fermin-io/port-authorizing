@@ -12,8 +12,8 @@ func TestNewPostgresAuthProxy(t *testing.T) {
 		Type:            "postgres",
 		Host:            "localhost",
 		Port:            5432,
-		BackendUsername: "testuser",
-		BackendPassword: "testpass",
+		BackendUsername: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testuser"},
+		BackendPassword: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testpass"},
 		BackendDatabase: "testdb",
 	}
 
@@ -26,7 +26,7 @@ func TestNewPostgresAuthProxy(t *testing.T) {
 
 	whitelist := []string{"^SELECT.*", "^INSERT.*"}
 
-	proxy := NewPostgresAuthProxy(connConfig, "", "user1", "conn-123", globalConfig, whitelist)
+	proxy := NewPostgresAuthProxy(connConfig, "", "user1", "conn-123", globalConfig, whitelist, nil)
 
 	if proxy == nil {
 		t.Fatal("NewPostgresAuthProxy() returned nil")
@@ -55,8 +55,8 @@ func TestNewPostgresAuthProxy_EmptyWhitelist(t *testing.T) {
 		Type:            "postgres",
 		Host:            "localhost",
 		Port:            5432,
-		BackendUsername: "testuser",
-		BackendPassword: "testpass",
+		BackendUsername: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testuser"},
+		BackendPassword: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "testpass"},
 		BackendDatabase: "testdb",
 	}
 
@@ -67,7 +67,7 @@ func TestNewPostgresAuthProxy_EmptyWhitelist(t *testing.T) {
 		},
 	}
 
-	proxy := NewPostgresAuthProxy(connConfig, "", "user1", "conn-123", globalConfig, []string{})
+	proxy := NewPostgresAuthProxy(connConfig, "", "user1", "conn-123", globalConfig, []string{}, nil)
 
 	if proxy == nil {
 		t.Fatal("NewPostgresAuthProxy() returned nil")
@@ -139,7 +139,7 @@ func TestPostgresAuthProxy_IsQueryAllowed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			proxy := NewPostgresAuthProxy(connConfig, "", "user1", "conn-123", globalConfig, tt.whitelist)
+			proxy := NewPostgresAuthProxy(connConfig, "", "user1", "conn-123", globalConfig, tt.whitelist, nil)
 			got := proxy.isQueryAllowed(tt.query)
 
 			if got != tt.want {
@@ -166,7 +166,7 @@ func TestPostgresAuthProxy_IsQueryAllowed_InvalidRegex(t *testing.T) {
 
 	// Invalid regex pattern
 	whitelist := []string{"[invalid(regex"}
-	proxy := NewPostgresAuthProxy(connConfig, "", "user1", "conn-123", globalConfig, whitelist)
+	proxy := NewPostgresAuthProxy(connConfig, "", "user1", "conn-123", globalConfig, whitelist, nil)
 
 	// Should not crash with invalid regex, should return false
 	allowed := proxy.isQueryAllowed("SELECT * FROM users")
@@ -191,7 +191,7 @@ func BenchmarkPostgresAuthProxy_IsQueryAllowed(b *testing.B) {
 	}
 
 	whitelist := []string{"^SELECT.*", "^INSERT.*", "^UPDATE.*"}
-	proxy := NewPostgresAuthProxy(connConfig, "", "user1", "conn-123", globalConfig, whitelist)
+	proxy := NewPostgresAuthProxy(connConfig, "", "user1", "conn-123", globalConfig, whitelist, nil)
 	query := "SELECT * FROM users WHERE id=1"
 
 	b.ResetTimer()

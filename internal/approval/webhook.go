@@ -5,20 +5,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
+
+	"github.com/davidcohan/port-authorizing/internal/config"
 )
 
 // WebhookProvider sends approval requests to a generic webhook endpoint
 type WebhookProvider struct {
-	webhookURL string
-	client     *http.Client
+	urlSource config.ConfigSource
+	resolver  *config.ConfigSourceResolver
+	client    *http.Client
 }
 
-// NewWebhookProvider creates a new webhook approval provider
-func NewWebhookProvider(webhookURL string) *WebhookProvider {
+// NewWebhookProvider creates a new webhook approval provider with dynamic URL resolution
+func NewWebhookProvider(urlSource config.ConfigSource, resolver *config.ConfigSourceResolver) *WebhookProvider {
 	return &WebhookProvider{
-		webhookURL: webhookURL,
+		urlSource: urlSource,
+		resolver:  resolver,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -28,6 +33,7 @@ func NewWebhookProvider(webhookURL string) *WebhookProvider {
 // webhookPayload is the payload sent to the webhook
 type webhookPayload struct {
 	RequestID    string            `json:"request_id"`
+	Environment  string            `json:"environment"`
 	Username     string            `json:"username"`
 	ConnectionID string            `json:"connection_id"`
 	Method       string            `json:"method"`
@@ -40,6 +46,25 @@ type webhookPayload struct {
 
 // SendApprovalRequest sends an approval request to the webhook
 func (w *WebhookProvider) SendApprovalRequest(ctx context.Context, req *Request) error {
+	// Resolve webhook URL dynamically (with caching)
+	webhookURL := w.urlSource.Value
+	
+	if w.resolver != nil && (w.urlSource.Type == config.ConfigSourceTypeConfigMap || w.urlSource.Type == config.ConfigSourceTypeSecret) {
+		resolvedURL, exists, err := w.resolver.ResolveConfigSource(ctx, w.urlSource)
+		if err != nil || !exists {
+			log.Printf("Warning: Failed to resolve webhook URL from %s (ref: %s): %v - using stored value", 
+				w.urlSource.Type, w.urlSource.Ref, err)
+		} else {
+			webhookURL = resolvedURL
+			log.Printf("DEBUG: Resolved webhook URL from %s (ref: %s)", w.urlSource.Type, w.urlSource.Ref)
+		}
+	}
+	
+	// Check if webhook is disabled (empty URL)
+	if webhookURL == "" {
+		return fmt.Errorf("webhook URL is empty - provider is disabled")
+	}
+	
 	payload := webhookPayload{
 		RequestID:    req.ID,
 		Username:     req.Username,
@@ -52,6 +77,7 @@ func (w *WebhookProvider) SendApprovalRequest(ctx context.Context, req *Request)
 		// The approval URL should be constructed from the API base URL
 		// For now, we'll include the request ID and expect the webhook to call back
 		ApprovalURL: fmt.Sprintf("/api/approvals/%s", req.ID),
+		Environment: req.Environment,
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -59,7 +85,7 @@ func (w *WebhookProvider) SendApprovalRequest(ctx context.Context, req *Request)
 		return fmt.Errorf("failed to marshal webhook payload: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", w.webhookURL, bytes.NewBuffer(jsonData))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create webhook request: %w", err)
 	}

@@ -78,15 +78,101 @@ func TestConfig_Defaults(t *testing.T) {
 	}
 }
 
-func TestUser_Properties(t *testing.T) {
+func TestUser_PropertiesPlain(t *testing.T) {
 	user := User{
-		Username: "testuser",
-		Password: "testpass",
-		Roles:    []string{"admin", "developer"},
+		Username: ConfigSource{
+			Type:  ConfigSourceTypePlain,
+			Value: "testuser",
+		},
+		Password: ConfigSource{
+			Type:  ConfigSourceTypePlain,
+			Value: "testpass",
+		},
+		Roles: []string{"admin", "developer"},
 	}
 
-	if user.Username != "testuser" {
+	if user.Username.Value != "testuser" {
 		t.Errorf("Username = %s, want testuser", user.Username)
+	}
+
+	if user.Username.Type != ConfigSourceTypePlain {
+		t.Errorf("Type = %s, want plain", user.Username.Type)
+	}
+
+	if user.Password.Value != "testpass" {
+		t.Errorf("Password = %s, want testpass", user.Password)
+	}
+
+	if user.Password.Type != ConfigSourceTypePlain {
+		t.Errorf("Type = %s, want plain", user.Password.Type)
+	}
+
+	if len(user.Roles) != 2 {
+		t.Errorf("Roles count = %d, want 2", len(user.Roles))
+	}
+}
+
+func TestUser_PropertiesConfigMap(t *testing.T) {
+	user := User{
+		Username: ConfigSource{
+			Type:  ConfigSourceTypeConfigMap,
+			Value: "testuser",
+		},
+		Password: ConfigSource{
+			Type:  ConfigSourceTypeConfigMap,
+			Value: "testpass",
+		},
+		Roles: []string{"admin", "developer"},
+	}
+
+	if user.Username.Value != "testuser" {
+		t.Errorf("Username = %s, want testuser", user.Username)
+	}
+
+	if user.Username.Type != ConfigSourceTypeConfigMap {
+		t.Errorf("Type = %s, want configmap", user.Username.Type)
+	}
+
+	if user.Password.Value != "testpass" {
+		t.Errorf("Password = %s, want testpass", user.Password)
+	}
+
+	if user.Password.Type != ConfigSourceTypeConfigMap {
+		t.Errorf("Type = %s, want configmap", user.Password.Type)
+	}
+
+	if len(user.Roles) != 2 {
+		t.Errorf("Roles count = %d, want 2", len(user.Roles))
+	}
+}
+
+func TestUser_PropertiesSecret(t *testing.T) {
+	user := User{
+		Username: ConfigSource{
+			Type:  ConfigSourceTypeSecret,
+			Value: "testuser",
+		},
+		Password: ConfigSource{
+			Type:  ConfigSourceTypeSecret,
+			Value: "testpass",
+		},
+		Roles: []string{"admin", "developer"},
+	}
+
+	if user.Username.Value != "testuser" {
+		t.Errorf("Username = %s, want testuser", user.Username)
+	}
+
+	if user.Username.Type != ConfigSourceTypeSecret {
+		t.Errorf("Type = %s, want configmap", user.Username.Type)
+	}
+
+	if user.Password.Value != "testpass" {
+		t.Errorf("Password = %s, want testpass", user.Password)
+	}
+
+	if user.Password.Type != ConfigSourceTypeSecret {
+		t.Errorf("Type = %s, want configmap", user.Password.Type)
 	}
 
 	if len(user.Roles) != 2 {

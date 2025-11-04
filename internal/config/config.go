@@ -1,12 +1,126 @@
 package config
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+// Config Source Type
+type ConfigSourceType string
+
+const (
+	ConfigSourceTypePlain     ConfigSourceType = "plain"
+	ConfigSourceTypeConfigMap ConfigSourceType = "configmap"
+	ConfigSourceTypeSecret    ConfigSourceType = "secret"
+)
+
+// Config Source
+type ConfigSource struct {
+	Type    ConfigSourceType `yaml:"type" json:"type" default:"plain"`
+	Value   string           `yaml:"value" json:"value" default:""`
+	Ref     string           `yaml:"ref" json:"ref" default:""`
+	RefName string           `yaml:"ref_name" json:"ref_name" default:""`
+}
+
+// UnmarshalYAML implements custom unmarshaling to support both plain strings and objects
+func (cs *ConfigSource) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Try unmarshaling as a string first (backward compatibility)
+	var str string
+	if err := unmarshal(&str); err == nil {
+		*cs = ConfigSource{
+			Type:  ConfigSourceTypePlain,
+			Value: str,
+		}
+		return nil
+	}
+
+	// If not a string, unmarshal as a struct
+	type rawConfigSource ConfigSource
+	var raw rawConfigSource
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+
+	*cs = ConfigSource(raw)
+	// Set default type if not specified
+	if cs.Type == "" {
+		cs.Type = ConfigSourceTypePlain
+	}
+	return nil
+}
+
+// MarshalYAML implements custom marshaling to support both plain strings and objects
+func (cs ConfigSource) MarshalYAML() (interface{}, error) {
+	// If it's a plain value with no refs, marshal as a simple string for readability
+	if cs.Type == ConfigSourceTypePlain || cs.Type == "" {
+		if cs.Ref == "" && cs.RefName == "" {
+			return cs.Value, nil
+		}
+	}
+
+	// For ConfigMap/Secret types, do NOT include the resolved value in the saved config
+	// The value will be resolved at runtime from the ConfigMap/Secret
+	value := cs.Value
+	if cs.Type == ConfigSourceTypeConfigMap || cs.Type == ConfigSourceTypeSecret {
+		value = "" // Don't persist resolved secrets/configmap values
+	}
+
+	// Otherwise, marshal as a full object
+	return map[string]interface{}{
+		"type":     cs.Type,
+		"value":    value,
+		"ref":      cs.Ref,
+		"ref_name": cs.RefName,
+	}, nil
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling
+func (cs *ConfigSource) UnmarshalJSON(data []byte) error {
+	// Try unmarshaling as a string first
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		*cs = ConfigSource{
+			Type:  ConfigSourceTypePlain,
+			Value: str,
+		}
+		return nil
+	}
+
+	// If not a string, unmarshal as a struct
+	type rawConfigSource ConfigSource
+	var raw rawConfigSource
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*cs = ConfigSource(raw)
+	// Set default type if not specified
+	if cs.Type == "" {
+		cs.Type = ConfigSourceTypePlain
+	}
+	return nil
+}
+
+// MarshalJSON implements custom JSON marshaling
+func (cs ConfigSource) MarshalJSON() ([]byte, error) {
+	// For JSON, always use the full object format to preserve all fields
+	// This is important for API communication
+	type rawConfigSource ConfigSource
+	raw := rawConfigSource(cs)
+	
+	// Set default type if empty
+	if raw.Type == "" {
+		raw.Type = ConfigSourceTypePlain
+	}
+	
+	return json.Marshal(raw)
+}
 
 // Config represents the main configuration structure
 type Config struct {
@@ -18,6 +132,7 @@ type Config struct {
 	Logging     LoggingConfig      `yaml:"logging"`
 	Approval    *ApprovalConfig    `yaml:"approval,omitempty"`
 	Storage     *StorageConfig     `yaml:"storage,omitempty"`
+	Environment string             `yaml:"environment"`
 }
 
 // ServerConfig contains server settings
@@ -29,7 +144,7 @@ type ServerConfig struct {
 
 // AuthConfig contains authentication settings
 type AuthConfig struct {
-	JWTSecret   string               `yaml:"jwt_secret"`
+	JWTSecret   ConfigSource         `yaml:"jwt_secret"`
 	TokenExpiry time.Duration        `yaml:"token_expiry"`
 	Providers   []AuthProviderConfig `yaml:"providers"`
 	// Legacy: local users (kept for backward compatibility)
@@ -42,6 +157,8 @@ type AuthProviderConfig struct {
 	Type    string            `yaml:"type"`    // local, oidc, saml2, ldap
 	Enabled bool              `yaml:"enabled"` // Whether this provider is active
 	Config  map[string]string `yaml:"config"`  // Provider-specific configuration
+	// ClientSecret can be used for OIDC client_secret from ConfigMap/Secret
+	ClientSecret ConfigSource `yaml:"client_secret,omitempty" json:"client_secret,omitempty"`
 }
 
 // OIDC Config keys: issuer, client_id, client_secret, redirect_url
@@ -50,9 +167,9 @@ type AuthProviderConfig struct {
 
 // User represents a user account
 type User struct {
-	Username string   `yaml:"username" json:"username"`
-	Password string   `yaml:"password" json:"password"` // In production, use hashed passwords
-	Roles    []string `yaml:"roles" json:"roles"`
+	Username ConfigSource `yaml:"username" json:"username"`
+	Password ConfigSource `yaml:"password" json:"password"` // In production, use hashed passwords
+	Roles    []string     `yaml:"roles" json:"roles"`
 }
 
 // ConnectionConfig defines an available connection endpoint
@@ -66,9 +183,9 @@ type ConnectionConfig struct {
 	Tags     []string          `yaml:"tags,omitempty" json:"tags,omitempty"`         // Tags for policy matching (env:prod, team:backend, etc.)
 	Metadata map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	// Backend credentials (for protocols like Postgres where proxy re-authenticates)
-	BackendUsername string `yaml:"backend_username,omitempty" json:"backend_username,omitempty"`
-	BackendPassword string `yaml:"backend_password,omitempty" json:"backend_password,omitempty"`
-	BackendDatabase string `yaml:"backend_database,omitempty" json:"backend_database,omitempty"`
+	BackendUsername ConfigSource `yaml:"backend_username,omitempty" json:"backend_username,omitempty"`
+	BackendPassword ConfigSource `yaml:"backend_password,omitempty" json:"backend_password,omitempty"`
+	BackendDatabase string       `yaml:"backend_database,omitempty" json:"backend_database,omitempty"`
 	// Deprecated: use policies instead
 	Whitelist []string `yaml:"whitelist,omitempty" json:"whitelist,omitempty"` // DEPRECATED: regex patterns, use policies instead
 }
@@ -85,9 +202,10 @@ type RolePolicy struct {
 
 // SecurityConfig contains security settings
 type SecurityConfig struct {
-	EnableLLMAnalysis bool   `yaml:"enable_llm_analysis"`
-	LLMProvider       string `yaml:"llm_provider,omitempty"`
-	LLMAPIKey         string `yaml:"llm_api_key,omitempty"`
+	EnableLLMAnalysis   bool          `yaml:"enable_llm_analysis"`
+	LLMProvider         string        `yaml:"llm_provider,omitempty"`
+	LLMAPIKey           string        `yaml:"llm_api_key,omitempty"`
+	ConfigSourceCacheTTL time.Duration `yaml:"config_source_cache_ttl,omitempty"` // TTL for ConfigMap/Secret resolution cache (default: 1m)
 }
 
 // LoggingConfig contains logging settings
@@ -115,16 +233,21 @@ type ApprovalPatternConfig struct {
 
 // WebhookApprovalConfig configures generic webhook approvals
 type WebhookApprovalConfig struct {
-	URL string `yaml:"url" json:"url"` // Webhook endpoint URL
+	URL ConfigSource `yaml:"url" json:"url"` // Webhook endpoint URL - can be plain, configmap, or secret
 }
 
 // SlackApprovalConfig configures Slack approvals
 type SlackApprovalConfig struct {
-	WebhookURL string `yaml:"webhook_url" json:"webhook_url"` // Slack incoming webhook URL
+	WebhookURL ConfigSource `yaml:"webhook_url" json:"webhook_url"` // Can be plain, configmap, or secret
 }
 
-// LoadConfig loads configuration from a YAML file
+// LoadConfig loads configuration from a YAML file and resolves ConfigSources
 func LoadConfig(path string) (*Config, error) {
+	return LoadConfigWithResolver(path, "")
+}
+
+// LoadConfigWithResolver loads configuration and resolves ConfigSources
+func LoadConfigWithResolver(path, namespace string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
@@ -150,6 +273,47 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if config.Logging.AuditLogPath == "" {
 		config.Logging.AuditLogPath = "audit.log"
+	}
+	if config.Environment == "" {
+		config.Environment = "local"
+	}
+
+	// Resolve ConfigSources from ConfigMaps/Secrets
+	// Use namespace from Storage config if available
+	resolverNamespace := namespace
+	if resolverNamespace == "" && config.Storage != nil {
+		resolverNamespace = config.Storage.Namespace
+	}
+
+	// Determine cache TTL (default 1 minute)
+	cacheTTL := config.Security.ConfigSourceCacheTTL
+	if cacheTTL == 0 {
+		cacheTTL = 1 * time.Minute
+	}
+
+	resolver, err := NewConfigSourceResolverWithTTL(resolverNamespace, cacheTTL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create config resolver: %w", err)
+	}
+
+	ctx := context.Background()
+	errors, err := resolver.ResolveConfig(ctx, &config)
+	if err != nil {
+		// Critical error - cannot continue
+		return nil, fmt.Errorf("failed to resolve configuration: %w", err)
+	}
+
+	// Log non-critical warnings (connection credentials, etc.)
+	if errors != nil {
+		for _, cm := range errors.MissingConfigMaps {
+			log.Printf("Warning: ConfigMap %s not found", cm)
+		}
+		for _, secret := range errors.MissingSecrets {
+			log.Printf("Warning: Secret %s not found", secret)
+		}
+		for _, warning := range errors.Warnings {
+			log.Printf("Warning: %s", warning)
+		}
 	}
 
 	return &config, nil

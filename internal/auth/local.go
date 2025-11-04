@@ -20,11 +20,12 @@ type localUser struct {
 
 // NewLocalProvider creates a local provider from user list
 func NewLocalProvider(users []config.User) *LocalProvider {
+	// TODO: Implement a manager for config and secrets sources
 	userMap := make(map[string]*localUser)
 	for _, u := range users {
-		userMap[u.Username] = &localUser{
-			username: u.Username,
-			password: u.Password,
+		userMap[u.Username.Value] = &localUser{
+			username: u.Username.Value,
+			password: u.Password.Value,
 			roles:    u.Roles,
 		}
 	}

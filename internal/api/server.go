@@ -26,6 +26,7 @@ type Server struct {
 	authSvc        *AuthService
 	authz          *authorization.Authorizer
 	approvalMgr    *approval.Manager
+	resolver       *config.ConfigSourceResolver
 }
 
 // NewServer creates a new API server instance
@@ -43,27 +44,60 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create storage backend: %w", err)
 	}
 
+	// Initialize ConfigSourceResolver for dynamic credential resolution
+	resolverNamespace := ""
+	if cfg.Storage != nil {
+		resolverNamespace = cfg.Storage.Namespace
+	}
+	cacheTTL := cfg.Security.ConfigSourceCacheTTL
+	if cacheTTL == 0 {
+		cacheTTL = 1 * time.Minute // Default 1 minute
+	}
+	resolver, err := config.NewConfigSourceResolverWithTTL(resolverNamespace, cacheTTL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create config resolver: %w", err)
+	}
+
 	authSvc, err := NewAuthService(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create auth service: %w", err)
 	}
 
 	// Initialize approval manager
-	approvalMgr := approval.NewManager(5 * time.Minute) // Default 5 minute timeout
+	approvalMgr := approval.NewManager(5*time.Minute, cfg.Environment) // Default 5 minute timeout
 
 	// Configure approval providers if enabled
 	if cfg.Approval != nil && cfg.Approval.Enabled {
-		if cfg.Approval.Webhook != nil && cfg.Approval.Webhook.URL != "" {
-			webhookProvider := approval.NewWebhookProvider(cfg.Approval.Webhook.URL)
+		providersConfigured := 0
+		
+		// Register webhook provider if configured (even if currently empty - allows dynamic enable/disable)
+		if cfg.Approval.Webhook != nil {
+			webhookProvider := approval.NewWebhookProvider(cfg.Approval.Webhook.URL, resolver)
 			approvalMgr.RegisterProvider(webhookProvider)
+			if cfg.Approval.Webhook.URL.Value != "" {
+				providersConfigured++
+				fmt.Printf("✓ Registered webhook approval provider (type: %s, has_value: true)\n", cfg.Approval.Webhook.URL.Type)
+			} else {
+				fmt.Printf("⚠ Registered webhook approval provider (type: %s, has_value: false) - will resolve dynamically\n", cfg.Approval.Webhook.URL.Type)
+			}
 		}
 
-		if cfg.Approval.Slack != nil && cfg.Approval.Slack.WebhookURL != "" {
-			slackProvider := approval.NewSlackProvider(
-				cfg.Approval.Slack.WebhookURL,
-				cfg.Server.BaseURL,
-			)
+		// Register Slack provider if configured (even if currently empty - allows dynamic enable/disable)
+		if cfg.Approval.Slack != nil {
+			slackProvider := approval.NewSlackProvider(cfg.Approval.Slack.WebhookURL, resolver, cfg.Server.BaseURL)
 			approvalMgr.RegisterProvider(slackProvider)
+			if cfg.Approval.Slack.WebhookURL.Value != "" {
+				providersConfigured++
+				fmt.Printf("✓ Registered Slack approval provider (type: %s, has_value: true)\n", cfg.Approval.Slack.WebhookURL.Type)
+			} else {
+				fmt.Printf("⚠ Registered Slack approval provider (type: %s, has_value: false) - will resolve dynamically\n", cfg.Approval.Slack.WebhookURL.Type)
+			}
+		}
+		
+		if providersConfigured == 0 && cfg.Approval.Webhook == nil && cfg.Approval.Slack == nil {
+			fmt.Printf("⚠ WARNING: Approval workflow is ENABLED but NO approval providers are configured!\n")
+			fmt.Printf("   Approval requests will fail with 'no approval providers configured'.\n")
+			fmt.Printf("   Please configure at least one provider (Webhook or Slack) with a valid URL.\n")
 		}
 
 		// Add approval patterns
@@ -83,6 +117,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		authSvc:        authSvc,
 		authz:          authorization.NewAuthorizer(cfg),
 		approvalMgr:    approvalMgr,
+		resolver:       resolver,
 	}
 
 	s.setupRoutes()
@@ -111,20 +146,53 @@ func (s *Server) ReloadConfig(newCfg *config.Config) error {
 	// Recreate authorizer
 	authz := authorization.NewAuthorizer(newCfg)
 
+	// Recreate ConfigSourceResolver for dynamic credential resolution
+	resolverNamespace := ""
+	if newCfg.Storage != nil {
+		resolverNamespace = newCfg.Storage.Namespace
+	}
+	cacheTTL := newCfg.Security.ConfigSourceCacheTTL
+	if cacheTTL == 0 {
+		cacheTTL = 1 * time.Minute // Default 1 minute
+	}
+	newResolver, err := config.NewConfigSourceResolverWithTTL(resolverNamespace, cacheTTL)
+	if err != nil {
+		return fmt.Errorf("failed to create config resolver: %w", err)
+	}
+
 	// Recreate approval manager
-	approvalMgr := approval.NewManager(5 * time.Minute)
+	approvalMgr := approval.NewManager(5*time.Minute, newCfg.Environment)
 	if newCfg.Approval != nil && newCfg.Approval.Enabled {
-		if newCfg.Approval.Webhook != nil && newCfg.Approval.Webhook.URL != "" {
-			webhookProvider := approval.NewWebhookProvider(newCfg.Approval.Webhook.URL)
+		providersConfigured := 0
+		
+		// Register webhook provider if configured (even if currently empty - allows dynamic enable/disable)
+		if newCfg.Approval.Webhook != nil {
+			webhookProvider := approval.NewWebhookProvider(newCfg.Approval.Webhook.URL, newResolver)
 			approvalMgr.RegisterProvider(webhookProvider)
+			if newCfg.Approval.Webhook.URL.Value != "" {
+				providersConfigured++
+				fmt.Printf("✓ Registered webhook approval provider (type: %s, has_value: true)\n", newCfg.Approval.Webhook.URL.Type)
+			} else {
+				fmt.Printf("⚠ Registered webhook approval provider (type: %s, has_value: false) - will resolve dynamically\n", newCfg.Approval.Webhook.URL.Type)
+			}
 		}
 
-		if newCfg.Approval.Slack != nil && newCfg.Approval.Slack.WebhookURL != "" {
-			slackProvider := approval.NewSlackProvider(
-				newCfg.Approval.Slack.WebhookURL,
-				newCfg.Server.BaseURL,
-			)
+		// Register Slack provider if configured (even if currently empty - allows dynamic enable/disable)
+		if newCfg.Approval.Slack != nil {
+			slackProvider := approval.NewSlackProvider(newCfg.Approval.Slack.WebhookURL, newResolver, newCfg.Server.BaseURL)
 			approvalMgr.RegisterProvider(slackProvider)
+			if newCfg.Approval.Slack.WebhookURL.Value != "" {
+				providersConfigured++
+				fmt.Printf("✓ Registered Slack approval provider (type: %s, has_value: true)\n", newCfg.Approval.Slack.WebhookURL.Type)
+			} else {
+				fmt.Printf("⚠ Registered Slack approval provider (type: %s, has_value: false) - will resolve dynamically\n", newCfg.Approval.Slack.WebhookURL.Type)
+			}
+		}
+		
+		if providersConfigured == 0 && newCfg.Approval.Webhook == nil && newCfg.Approval.Slack == nil {
+			fmt.Printf("⚠ WARNING: Approval workflow is ENABLED but NO approval providers are configured!\n")
+			fmt.Printf("   Approval requests will fail with 'no approval providers configured'.\n")
+			fmt.Printf("   Please configure at least one provider (Webhook or Slack) with a valid URL.\n")
 		}
 
 		for _, pattern := range newCfg.Approval.Patterns {
@@ -141,6 +209,7 @@ func (s *Server) ReloadConfig(newCfg *config.Config) error {
 	s.authSvc = authSvc
 	s.authz = authz
 	s.approvalMgr = approvalMgr
+	s.resolver = newResolver
 
 	return nil
 }
@@ -195,6 +264,7 @@ func (s *Server) setupRoutes() {
 	// Configuration management
 	adminAPI.HandleFunc("/config", s.handleGetConfig).Methods("GET", "OPTIONS")
 	adminAPI.HandleFunc("/config", s.handleUpdateConfig).Methods("PUT", "OPTIONS")
+	adminAPI.HandleFunc("/config/errors", s.handleGetConfigErrors).Methods("GET", "OPTIONS")
 	adminAPI.HandleFunc("/config/versions", s.handleListConfigVersions).Methods("GET", "OPTIONS")
 	adminAPI.HandleFunc("/config/versions/{id}", s.handleGetConfigVersion).Methods("GET", "OPTIONS")
 	adminAPI.HandleFunc("/config/rollback/{id}", s.handleRollbackConfig).Methods("POST", "OPTIONS")

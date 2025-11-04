@@ -17,21 +17,42 @@ func TestHandleConnect_FullFlow(t *testing.T) {
 			Port: 8080,
 		},
 		Auth: config.AuthConfig{
-			JWTSecret:   "test-secret",
+			JWTSecret: config.ConfigSource{
+				Type:  config.ConfigSourceTypePlain,
+				Value: "test-secret",
+			},
 			TokenExpiry: 24 * time.Hour,
 			Users: []config.User{
-				{Username: "admin", Password: "admin123", Roles: []string{"admin"}},
-				{Username: "developer", Password: "dev123", Roles: []string{"developer"}},
+				{Username: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "admin",
+				}, Password: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "admin123",
+				}, Roles: []string{"admin"}},
+				{Username: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "developer",
+				}, Password: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "dev123",
+				}, Roles: []string{"developer"}},
 			},
 		},
 		Connections: []config.ConnectionConfig{
 			{
-				Name:            "test-db",
-				Type:            "postgres",
-				Host:            "localhost",
-				Port:            5432,
-				BackendUsername: "dbuser",
-				BackendPassword: "dbpass",
+				Name: "test-db",
+				Type: "postgres",
+				Host: "localhost",
+				Port: 5432,
+				BackendUsername: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "dbuser",
+				},
+				BackendPassword: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "dbpass",
+				},
 				BackendDatabase: "testdb",
 				Tags:            []string{"env:test"},
 			},
@@ -141,10 +162,19 @@ func TestHandleListConnections_WithFiltering(t *testing.T) {
 			Port: 8080,
 		},
 		Auth: config.AuthConfig{
-			JWTSecret:   "test-secret",
+			JWTSecret: config.ConfigSource{
+				Type:  config.ConfigSourceTypePlain,
+				Value: "test-secret",
+			},
 			TokenExpiry: 24 * time.Hour,
 			Users: []config.User{
-				{Username: "developer", Password: "dev123", Roles: []string{"developer"}},
+				{Username: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "developer",
+				}, Password: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "dev123",
+				}, Roles: []string{"developer"}},
 			},
 		},
 		Connections: []config.ConnectionConfig{
@@ -215,10 +245,19 @@ func BenchmarkHandleConnect(b *testing.B) {
 			Port: 8080,
 		},
 		Auth: config.AuthConfig{
-			JWTSecret:   "test-secret",
+			JWTSecret: config.ConfigSource{
+				Type:  config.ConfigSourceTypePlain,
+				Value: "test-secret",
+			},
 			TokenExpiry: 24 * time.Hour,
 			Users: []config.User{
-				{Username: "admin", Password: "admin123", Roles: []string{"admin"}},
+				{Username: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "admin",
+				}, Password: config.ConfigSource{
+					Type:  config.ConfigSourceTypePlain,
+					Value: "admin123",
+				}, Roles: []string{"admin"}},
 			},
 		},
 		Connections: []config.ConnectionConfig{
