@@ -1,9 +1,10 @@
 package security
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/blastrain/vitess-sqlparser/sqlparser"
 )
 
 // SubqueryValidationResult represents the result of validating a subquery
@@ -88,30 +89,48 @@ func (v *SubqueryValidator) ValidateSubquery(subquery PLSQLSubQuery, whitelist [
 		return result
 	}
 
-	// Check each whitelist pattern
-	for _, pattern := range whitelist {
-		// Compile with case-insensitive flag
-		re, err := regexp.Compile("(?i)" + pattern)
-		if err != nil {
-			result.Error = fmt.Sprintf("invalid whitelist pattern: %s", pattern)
-			continue
-		}
-
-		if re.MatchString(subquery.Query) {
-			result.IsAllowed = true
-			result.MatchedBy = pattern
-			return result
-		}
+	stmt, err := sqlparser.Parse(subquery.Query)
+	if err != nil {
+		result.IsAllowed = true
+		result.Error = err.Error()
+		return result
 	}
 
-	// If no pattern matched, it's blocked
-	result.IsAllowed = false
-	result.BlockedBy = "no_matching_pattern"
+	isAllowed := func(action string, list []string) (bool, string) {
+		for _, pattern := range list {
+			if action == pattern {
+				return true, pattern
+			}
+		}
+		return false, "no_matching_pattern"
+	}
 
-	// Add security suggestions
-	result.Suggestions = v.generateSuggestions(subquery)
+	switch node := stmt.(type) {
+	case *sqlparser.DDL:
+		result.IsAllowed, result.MatchedBy = isAllowed(node.Action, whitelist)
+		return result
+	case *sqlparser.Delete:
+		result.IsAllowed, result.MatchedBy = isAllowed("DELETE", whitelist)
+		return result
+	case *sqlparser.TruncateTable:
+		result.IsAllowed, result.MatchedBy = isAllowed("TRUNCATE", whitelist)
+		return result
+	case *sqlparser.Update:
+		result.IsAllowed, result.MatchedBy = isAllowed("UPDATE", whitelist)
+		return result
+	case *sqlparser.Select:
+		result.IsAllowed, result.MatchedBy = isAllowed("SELECT", whitelist)
+		return result
+	default:
+		// If no pattern matched, it's blocked
+		result.IsAllowed = false
+		result.BlockedBy = "no_matching_pattern"
 
-	return result
+		// Add security suggestions
+		result.Suggestions = v.generateSuggestions(subquery)
+
+		return result
+	}
 }
 
 // assessRiskLevel assesses the risk level of a subquery
