@@ -23,8 +23,12 @@
                     <input type="password" id="login-password" required>
                 </div>
                 <div id="login-error" class="error-message"></div>
-                <button type="submit">Login</button>
+                <button type="submit">Login with Credentials</button>
             </form>
+            <div style="text-align: center; margin: 20px 0;">
+                <span style="color: #999;">or</span>
+            </div>
+            <button type="button" onclick="handleOIDCLogin()" style="width: 100%; background: #4CAF50;">Login with OIDC/SSO</button>
         </div>
     </div>
 
@@ -113,74 +117,6 @@
                 <div class="section-header">
                     <h2>Connections</h2>
                     <button onclick="showConnectionForm()">Add Connection</button>
-                </div>
-                <div id="connection-form" class="form-container" style="display: none;">
-                    <h3 id="connection-form-title">Add Connection</h3>
-                    <form id="connectionForm" onsubmit="saveConnection(event)">
-                        <input type="hidden" id="connection-original-name">
-                        <div class="form-group">
-                            <label>Name:</label>
-                            <input type="text" id="conn-name" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Type:</label>
-                            <select id="conn-type" required onchange="updateConnectionFields()">
-                                <option value="">Select Type...</option>
-                                <option value="postgres">PostgreSQL</option>
-                                <option value="http">HTTP</option>
-                                <option value="https">HTTPS</option>
-                                <option value="tcp">TCP</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Host:</label>
-                            <input type="text" id="conn-host" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Port:</label>
-                            <input type="number" id="conn-port" required>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>Tags (comma-separated):</label>
-                            <input type="text" id="conn-tags" placeholder="env:prod,team:backend">
-                        </div>
-                        
-                        <!-- Duration -->
-                        <div class="form-group">
-                            <label>Duration (optional):</label>
-                            <input type="text" id="conn-duration" placeholder="e.g., 30m, 2h, 1h30m">
-                            <small style="color: #666; font-size: 0.85em;">Examples: 30m, 2h, 1h30m. Leave empty for default.</small>
-                        </div>
-                        
-                        <!-- Metadata -->
-                        <div class="form-group">
-                            <label>Metadata (JSON, optional):</label>
-                            <textarea id="conn-metadata" rows="3" placeholder='{"description": "My connection", "team": "platform"}' style="font-family: monospace; font-size: 0.9em;"></textarea>
-                            <small style="color: #666; font-size: 0.85em;">Valid JSON object. Must include "description" field if provided.</small>
-                        </div>
-                        
-                        <!-- PostgreSQL specific fields -->
-                        <div id="postgres-fields" style="display: none;">
-                            <div class="form-group">
-                                <label>Backend Username:</label>
-                                <input type="text" id="conn-backend-username">
-                            </div>
-                            <div class="form-group">
-                                <label>Backend Password:</label>
-                                <input type="password" id="conn-backend-password" placeholder="Leave empty to keep current password">
-                                <small style="color: #666; font-size: 0.85em;">Leave empty when editing to keep existing password</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Backend Database:</label>
-                                <input type="text" id="conn-backend-database">
-                            </div>
-                        </div>
-                        <div class="form-actions">
-                            <button type="submit">Save</button>
-                            <button type="button" onclick="hideConnectionForm()">Cancel</button>
-                        </div>
-                    </form>
                 </div>
                 <table id="connections-table">
                     <thead>
@@ -422,16 +358,64 @@
                     <div id="providers-form" class="form-container" style="display: none; margin-top: 15px;">
                         <h5>Edit Approval Providers</h5>
                         <form id="providersForm" onsubmit="saveProviders(event)">
+                            <!-- Webhook URL -->
                             <div class="form-group">
-                                <label>Webhook URL:</label>
-                                <input type="url" id="provider-webhook-url" placeholder="https://your-webhook-endpoint.com/approve">
-                                <small>HTTP endpoint to receive approval requests (leave empty to disable)</small>
+                                <label>Webhook URL Source:</label>
+                                <select id="webhook-url-type" onchange="toggleProviderConfigSourceFields('webhook')">
+                                    <option value="plain">Plain Value</option>
+                                    <option value="configmap">ConfigMap</option>
+                                    <option value="secret">Secret</option>
+                                </select>
+                            </div>
+                            <div id="webhook-plain-fields">
+                                <div class="form-group">
+                                    <label>Webhook URL:</label>
+                                    <input type="url" id="provider-webhook-url" placeholder="https://your-webhook-endpoint.com/approve">
+                                    <small>HTTP endpoint to receive approval requests (leave empty to disable)</small>
+                                </div>
+                            </div>
+                            <div id="webhook-k8s-fields" style="display: none;">
+                                <div class="form-group">
+                                    <label>ConfigMap/Secret Name:</label>
+                                    <input type="text" id="webhook-url-ref" placeholder="e.g., webhook-config">
+                                    <small style="color: #666; font-size: 0.85em;">Name of the ConfigMap or Secret</small>
+                                </div>
+                                <div class="form-group">
+                                    <label>Key Name:</label>
+                                    <input type="text" id="webhook-url-ref-name" placeholder="url" value="url">
+                                    <small style="color: #666; font-size: 0.85em;">Key name within the ConfigMap/Secret (default: url)</small>
+                                </div>
                             </div>
                             
+                            <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+                            
+                            <!-- Slack Webhook URL -->
                             <div class="form-group">
-                                <label>Slack Webhook URL:</label>
-                                <input type="url" id="provider-slack-url" placeholder="https://hooks.slack.com/services/...">
-                                <small>Slack incoming webhook URL for approval notifications (leave empty to disable)</small>
+                                <label>Slack Webhook URL Source:</label>
+                                <select id="slack-url-type" onchange="toggleProviderConfigSourceFields('slack')">
+                                    <option value="plain">Plain Value</option>
+                                    <option value="configmap">ConfigMap</option>
+                                    <option value="secret">Secret</option>
+                                </select>
+                            </div>
+                            <div id="slack-plain-fields">
+                                <div class="form-group">
+                                    <label>Slack Webhook URL:</label>
+                                    <input type="url" id="provider-slack-url" placeholder="https://hooks.slack.com/services/...">
+                                    <small>Slack incoming webhook URL for approval notifications (leave empty to disable)</small>
+                                </div>
+                            </div>
+                            <div id="slack-k8s-fields" style="display: none;">
+                                <div class="form-group">
+                                    <label>ConfigMap/Secret Name:</label>
+                                    <input type="text" id="slack-url-ref" placeholder="e.g., slack-config">
+                                    <small style="color: #666; font-size: 0.85em;">Name of the ConfigMap or Secret</small>
+                                </div>
+                                <div class="form-group">
+                                    <label>Key Name:</label>
+                                    <input type="text" id="slack-url-ref-name" placeholder="webhook_url" value="webhook_url">
+                                    <small style="color: #666; font-size: 0.85em;">Key name within the ConfigMap/Secret (default: webhook_url)</small>
+                                </div>
                             </div>
                             
                             <div class="form-actions">
@@ -516,6 +500,137 @@
     </div>
 
     <div id="notification" class="notification"></div>
+
+
+    <!-- Modal overlay for connection form -->
+    <div id="connection-form-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+
+        <h3 id="connection-form-title">Add Connection</h3>
+        <form id="connectionForm" onsubmit="saveConnection(event)">
+            <input type="hidden" id="connection-original-name">
+            <div class="form-group">
+                <label>Name:</label>
+                <input type="text" id="conn-name" required>
+            </div>
+            <div class="form-group">
+                <label>Type:</label>
+                <select id="conn-type" required onchange="updateConnectionFields()">
+                    <option value="">Select Type...</option>
+                    <option value="postgres">PostgreSQL</option>
+                    <option value="http">HTTP</option>
+                    <option value="https">HTTPS</option>
+                    <option value="tcp">TCP</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Host:</label>
+                <input type="text" id="conn-host" required>
+            </div>
+            <div class="form-group">
+                <label>Port:</label>
+                <input type="number" id="conn-port" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Tags (comma-separated):</label>
+                <input type="text" id="conn-tags" placeholder="env:prod,team:backend">
+            </div>
+            
+            <!-- Duration -->
+            <div class="form-group">
+                <label>Duration (optional):</label>
+                <input type="text" id="conn-duration" placeholder="e.g., 30m, 2h, 1h30m">
+                <small style="color: #666; font-size: 0.85em;">Examples: 30m, 2h, 1h30m. Leave empty for default.</small>
+            </div>
+            
+            <!-- Metadata -->
+            <div class="form-group">
+                <label>Metadata (JSON, optional):</label>
+                <textarea id="conn-metadata" rows="3" placeholder='{"description": "My connection", "team": "platform"}' style="font-family: monospace; font-size: 0.9em;"></textarea>
+                <small style="color: #666; font-size: 0.85em;">Valid JSON object. Must include "description" field if provided.</small>
+            </div>
+            
+            <!-- PostgreSQL specific fields -->
+            <div id="postgres-fields" style="display: none;">
+                <!-- Backend Username -->
+                <div class="form-group">
+                    <label>Backend Username Source:</label>
+                    <select id="conn-backend-username-type" onchange="toggleConfigSourceFields('username')">
+                        <option value="plain">Plain Value</option>
+                        <option value="configmap">ConfigMap</option>
+                        <option value="secret">Secret</option>
+                    </select>
+                </div>
+                <div id="username-plain-fields">
+                    <div class="form-group">
+                        <label>Backend Username:</label>
+                        <input type="text" id="conn-backend-username">
+                    </div>
+                </div>
+                <div id="username-k8s-fields" style="display: none;">
+                    <div class="form-group">
+                        <label>ConfigMap/Secret Name:</label>
+                        <input type="text" id="conn-backend-username-ref" placeholder="e.g., postgres-credentials">
+                        <small style="color: #666; font-size: 0.85em;">Name of the ConfigMap or Secret</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Key Name:</label>
+                        <input type="text" id="conn-backend-username-refname" placeholder="e.g., username">
+                        <small style="color: #666; font-size: 0.85em;">Key within the ConfigMap/Secret</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Fallback Value (optional):</label>
+                        <input type="text" id="conn-backend-username-fallback" placeholder="Used if ConfigMap/Secret not found">
+                    </div>
+                </div>
+
+                <!-- Backend Password -->
+                <div class="form-group">
+                    <label>Backend Password Source:</label>
+                    <select id="conn-backend-password-type" onchange="toggleConfigSourceFields('password')">
+                        <option value="plain">Plain Value</option>
+                        <option value="configmap">ConfigMap</option>
+                        <option value="secret">Secret</option>
+                    </select>
+                </div>
+                <div id="password-plain-fields">
+                    <div class="form-group">
+                        <label>Backend Password:</label>
+                        <input type="password" id="conn-backend-password" placeholder="Leave empty to keep current password">
+                        <small style="color: #666; font-size: 0.85em;">Leave empty when editing to keep existing password</small>
+                    </div>
+                </div>
+                <div id="password-k8s-fields" style="display: none;">
+                    <div class="form-group">
+                        <label>ConfigMap/Secret Name:</label>
+                        <input type="text" id="conn-backend-password-ref" placeholder="e.g., postgres-credentials">
+                        <small style="color: #666; font-size: 0.85em;">Name of the ConfigMap or Secret</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Key Name:</label>
+                        <input type="text" id="conn-backend-password-refname" placeholder="e.g., password">
+                        <small style="color: #666; font-size: 0.85em;">Key within the ConfigMap/Secret</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Fallback Value (optional):</label>
+                        <input type="password" id="conn-backend-password-fallback" placeholder="Used if ConfigMap/Secret not found">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Backend Database:</label>
+                    <input type="text" id="conn-backend-database">
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit">Save</button>
+                <button type="button" onclick="hideConnectionForm()">Cancel</button>
+            </div>
+        </form>
+    
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>

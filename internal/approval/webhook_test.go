@@ -7,21 +7,25 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/davidcohan/port-authorizing/internal/config"
 )
 
 func TestNewWebhookProvider(t *testing.T) {
-	provider := NewWebhookProvider("https://example.com/webhook")
+	urlSource := config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "https://example.com/webhook"}
+	provider := NewWebhookProvider(urlSource, nil)
 
 	if provider == nil {
 		t.Fatal("NewWebhookProvider returned nil")
 	}
 
-	if provider.webhookURL != "https://example.com/webhook" {
-		t.Errorf("webhookURL = %v, want https://example.com/webhook", provider.webhookURL)
-	}
-
 	if provider.GetProviderName() != "webhook" {
 		t.Errorf("GetProviderName() = %v, want webhook", provider.GetProviderName())
+	}
+
+	// Verify URL source is stored correctly
+	if provider.urlSource.Value != "https://example.com/webhook" {
+		t.Errorf("urlSource.Value = %v, want https://example.com/webhook", provider.urlSource.Value)
 	}
 }
 
@@ -46,7 +50,7 @@ func TestWebhookProvider_SendApprovalRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewWebhookProvider(server.URL)
+	provider := NewWebhookProvider(config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: server.URL}, nil)
 
 	req := &Request{
 		ID:           "test-123",
@@ -88,7 +92,7 @@ func TestWebhookProvider_SendApprovalRequest_Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewWebhookProvider(server.URL)
+	provider := NewWebhookProvider(config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: server.URL}, nil)
 
 	req := &Request{
 		ID:       "test-123",
@@ -106,7 +110,8 @@ func TestWebhookProvider_SendApprovalRequest_Error(t *testing.T) {
 }
 
 func TestWebhookProvider_SendApprovalRequest_InvalidURL(t *testing.T) {
-	provider := NewWebhookProvider("http://invalid-host-that-does-not-exist-12345")
+	urlSource := config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "http://invalid-host-that-does-not-exist-12345"}
+	provider := NewWebhookProvider(urlSource, nil)
 
 	req := &Request{
 		ID:       "test-123",
@@ -129,7 +134,7 @@ func BenchmarkWebhookProvider_SendApprovalRequest(b *testing.B) {
 	}))
 	defer server.Close()
 
-	provider := NewWebhookProvider(server.URL)
+	provider := NewWebhookProvider(config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: server.URL}, nil)
 	req := &Request{
 		ID:       "test-123",
 		Username: "alice",

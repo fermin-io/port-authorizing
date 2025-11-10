@@ -121,18 +121,18 @@ func (s *Server) handleRollbackConfig(w http.ResponseWriter, r *http.Request) {
 
 // ConnectionResponse is a connection config with duration as string for JSON
 type ConnectionResponse struct {
-	Name            string            `json:"name"`
-	Type            string            `json:"type"`
-	Host            string            `json:"host"`
-	Port            int               `json:"port"`
-	Scheme          string            `json:"scheme,omitempty"`
-	Duration        string            `json:"duration,omitempty"`
-	Tags            []string          `json:"tags,omitempty"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
-	BackendUsername string            `json:"backend_username,omitempty"`
-	BackendPassword string            `json:"backend_password,omitempty"`
-	BackendDatabase string            `json:"backend_database,omitempty"`
-	Whitelist       []string          `json:"whitelist,omitempty"`
+	Name            string                `json:"name"`
+	Type            string                `json:"type"`
+	Host            string                `json:"host"`
+	Port            int                   `json:"port"`
+	Scheme          string                `json:"scheme,omitempty"`
+	Duration        string                `json:"duration,omitempty"`
+	Tags            []string              `json:"tags,omitempty"`
+	Metadata        map[string]string     `json:"metadata,omitempty"`
+	BackendUsername config.ConfigSource   `json:"backend_username,omitempty"`
+	BackendPassword config.ConfigSource   `json:"backend_password,omitempty"`
+	BackendDatabase string                `json:"backend_database,omitempty"`
+	Whitelist       []string              `json:"whitelist,omitempty"`
 }
 
 // toConnectionResponse converts ConnectionConfig to ConnectionResponse with duration as string
@@ -145,8 +145,8 @@ func toConnectionResponse(conn config.ConnectionConfig) ConnectionResponse {
 		Scheme:          conn.Scheme,
 		Tags:            conn.Tags,
 		Metadata:        conn.Metadata,
-		BackendUsername: conn.BackendUsername,
-		BackendPassword: conn.BackendPassword,
+		BackendUsername: sanitizeConfigSource(conn.BackendUsername),
+		BackendPassword: sanitizeConfigSource(conn.BackendPassword),
 		BackendDatabase: conn.BackendDatabase,
 		Whitelist:       conn.Whitelist,
 	}
@@ -157,6 +157,22 @@ func toConnectionResponse(conn config.ConnectionConfig) ConnectionResponse {
 	}
 
 	return resp
+}
+
+// sanitizeConfigSource removes resolved values from Secret/ConfigMap types for API responses
+func sanitizeConfigSource(cs config.ConfigSource) config.ConfigSource {
+	// For Secret and ConfigMap types, don't expose resolved values in API responses
+	if cs.Type == config.ConfigSourceTypeSecret || cs.Type == config.ConfigSourceTypeConfigMap {
+		// Keep reference info but clear the resolved value
+		return config.ConfigSource{
+			Type:    cs.Type,
+			Value:   "", // Don't expose resolved secrets/configmap values
+			Ref:     cs.Ref,
+			RefName: cs.RefName,
+		}
+	}
+	// For plain type, return as-is
+	return cs
 }
 
 // handleListAllConnections lists all configured connections (admin view)
@@ -307,9 +323,16 @@ func (s *Server) handleUpdateConnection(w http.ResponseWriter, r *http.Request) 
 				updatedConn.Name = name
 			}
 
-			// Preserve backend_password if not provided (empty string means keep existing)
-			if updatedConn.BackendPassword == "" && conn.BackendPassword != "" {
+			// Preserve backend_password only if NO credential info was provided at all
+			// If Type or Ref is set, the user is providing new credentials (even if Value is empty for secrets)
+			if updatedConn.BackendPassword.Type == "" && updatedConn.BackendPassword.Value == "" && updatedConn.BackendPassword.Ref == "" {
+				// No credential info provided, keep existing
 				updatedConn.BackendPassword = conn.BackendPassword
+			}
+
+			// Same logic for backend_username
+			if updatedConn.BackendUsername.Type == "" && updatedConn.BackendUsername.Value == "" && updatedConn.BackendUsername.Ref == "" {
+				updatedConn.BackendUsername = conn.BackendUsername
 			}
 
 			cfg.Connections[i] = updatedConn
@@ -401,9 +424,15 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 // handleCreateUser creates a new local user
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Username string   `json:"username"`
-		Password string   `json:"password"`
-		Roles    []string `json:"roles"`
+		Username        string   `json:"username"`
+		UserNameType    string   `json:"username_type"`
+		UserNameRef     string   `json:"username_ref"`
+		UserNameRefName string   `json:"username_ref_name"`
+		Password        string   `json:"password"`
+		PasswordType    string   `json:"password_type"`
+		PasswordRef     string   `json:"password_ref"`
+		PasswordRefName string   `json:"password_ref_name"`
+		Roles           []string `json:"roles"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -420,7 +449,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Check if user already exists
 	for _, user := range cfg.Auth.Users {
-		if user.Username == req.Username {
+		if user.Username.Value == req.Username {
 			respondError(w, http.StatusConflict, "User already exists")
 			return
 		}
@@ -429,9 +458,19 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	// Add user
 	// Note: Passwords are stored in plain text for operational requirements
 	newUser := config.User{
-		Username: req.Username,
-		Password: req.Password,
-		Roles:    req.Roles,
+		Username: config.ConfigSource{
+			Type:    config.ConfigSourceType(req.UserNameType),
+			Value:   req.Username,
+			Ref:     req.UserNameRef,
+			RefName: req.UserNameRefName,
+		},
+		Password: config.ConfigSource{
+			Type:    config.ConfigSourceType(req.PasswordType),
+			Value:   req.Password,
+			Ref:     req.PasswordRef,
+			RefName: req.PasswordRefName,
+		},
+		Roles: req.Roles,
 	}
 	cfg.Auth.Users = append(cfg.Auth.Users, newUser)
 
@@ -460,8 +499,11 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	username := vars["username"]
 
 	var req struct {
-		Password *string  `json:"password,omitempty"`
-		Roles    []string `json:"roles"`
+		PasswordType    string   `json:"password_type"`
+		PasswordRef     string   `json:"password_ref"`
+		PasswordRefName string   `json:"password_ref_name"`
+		Password        *string  `json:"password,omitempty"`
+		Roles           []string `json:"roles"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -474,14 +516,19 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	// Find and update user
 	found := false
 	for i, user := range cfg.Auth.Users {
-		if user.Username == username {
+		if user.Username.Value == username {
 			// Update roles
 			cfg.Auth.Users[i].Roles = req.Roles
 
 			// Update password if provided
 			// Note: Passwords are stored in plain text for operational requirements
 			if req.Password != nil && *req.Password != "" {
-				cfg.Auth.Users[i].Password = *req.Password
+				cfg.Auth.Users[i].Password = config.ConfigSource{
+					Type:    config.ConfigSourceType(req.PasswordType),
+					Value:   *req.Password,
+					Ref:     req.PasswordRef,
+					RefName: req.PasswordRefName,
+				}
 			}
 
 			found = true
@@ -524,7 +571,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	found := false
 	newUsers := []config.User{}
 	for _, user := range cfg.Auth.Users {
-		if user.Username == username {
+		if user.Username.Value == username {
 			found = true
 			continue
 		}
@@ -911,10 +958,12 @@ func sanitizeConfig(cfg *config.Config) map[string]interface{} {
 			"tags":     conn.Tags,
 			"metadata": conn.Metadata,
 		}
-		// Include backend username but not password
-		if conn.BackendUsername != "" {
-			connMap["backend_username"] = conn.BackendUsername
-			connMap["backend_password"] = "********"
+		// Sanitize backend credentials - don't expose resolved Secret/ConfigMap values
+		if conn.BackendUsername.Type != "" || conn.BackendUsername.Value != "" || conn.BackendUsername.Ref != "" {
+			connMap["backend_username"] = sanitizeConfigSource(conn.BackendUsername)
+		}
+		if conn.BackendPassword.Type != "" || conn.BackendPassword.Value != "" || conn.BackendPassword.Ref != "" {
+			connMap["backend_password"] = sanitizeConfigSource(conn.BackendPassword)
 		}
 		if conn.BackendDatabase != "" {
 			connMap["backend_database"] = conn.BackendDatabase
@@ -1114,10 +1163,20 @@ func (s *Server) handlePolicyTest(w http.ResponseWriter, r *http.Request) {
 
 // ApprovalConfigResponse is the response for approval configuration
 type ApprovalConfigResponse struct {
-	Enabled  bool                          `json:"enabled"`
-	Patterns []ApprovalPatternResponse     `json:"patterns"`
-	Webhook  *config.WebhookApprovalConfig `json:"webhook,omitempty"`
-	Slack    *config.SlackApprovalConfig   `json:"slack,omitempty"`
+	Enabled  bool                        `json:"enabled"`
+	Patterns []ApprovalPatternResponse   `json:"patterns"`
+	Webhook  *WebhookApprovalResponse    `json:"webhook,omitempty"`
+	Slack    *SlackApprovalResponse      `json:"slack,omitempty"`
+}
+
+// WebhookApprovalResponse is the sanitized response for webhook approval config
+type WebhookApprovalResponse struct {
+	URL config.ConfigSource `json:"url"`
+}
+
+// SlackApprovalResponse is the sanitized response for Slack approval config
+type SlackApprovalResponse struct {
+	WebhookURL config.ConfigSource `json:"webhook_url"`
 }
 
 // ApprovalPatternResponse represents an approval pattern with index
@@ -1147,8 +1206,19 @@ func (s *Server) handleGetApprovalConfig(w http.ResponseWriter, r *http.Request)
 	resp := ApprovalConfigResponse{
 		Enabled:  cfg.Approval.Enabled,
 		Patterns: patterns,
-		Webhook:  cfg.Approval.Webhook,
-		Slack:    cfg.Approval.Slack,
+	}
+
+	// Sanitize webhook URLs (remove resolved values for Secret/ConfigMap types)
+	if cfg.Approval.Webhook != nil {
+		resp.Webhook = &WebhookApprovalResponse{
+			URL: sanitizeConfigSource(cfg.Approval.Webhook.URL),
+		}
+	}
+
+	if cfg.Approval.Slack != nil {
+		resp.Slack = &SlackApprovalResponse{
+			WebhookURL: sanitizeConfigSource(cfg.Approval.Slack.WebhookURL),
+		}
 	}
 
 	respondJSON(w, http.StatusOK, resp)
@@ -1364,5 +1434,66 @@ func (s *Server) handleUpdateApprovalProviders(w http.ResponseWriter, r *http.Re
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "Approval providers updated successfully",
+	})
+}
+
+// handleGetConfigErrors returns missing ConfigMaps/Secrets status
+func (s *Server) handleGetConfigErrors(w http.ResponseWriter, r *http.Request) {
+	cfg := s.GetConfig()
+
+	// Determine namespace from storage config or default
+	namespace := ""
+	if cfg.Storage != nil {
+		namespace = cfg.Storage.Namespace
+	}
+
+	// Create resolver and check for errors
+	resolver, err := config.NewConfigSourceResolver(namespace)
+	if err != nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"errors": map[string]interface{}{
+				"connections": map[string]interface{}{},
+				"global": map[string]interface{}{
+					"missing_configmaps": []string{},
+					"missing_secrets":    []string{},
+					"warnings":           []string{},
+				},
+			},
+		})
+		return
+	}
+
+	ctx := r.Context()
+	errors, _ := resolver.ResolveConfig(ctx, cfg)
+
+	// Build response
+	connectionErrors := make(map[string]interface{})
+	if errors != nil && errors.Connections != nil {
+		for connName, connErr := range errors.Connections {
+			connectionErrors[connName] = map[string]interface{}{
+				"missing_configmaps": connErr.MissingConfigMaps,
+				"missing_secrets":    connErr.MissingSecrets,
+				"warnings":           connErr.Warnings,
+			}
+		}
+	}
+
+	globalErrors := map[string]interface{}{
+		"missing_configmaps": []string{},
+		"missing_secrets":    []string{},
+		"warnings":           []string{},
+	}
+
+	if errors != nil {
+		globalErrors["missing_configmaps"] = errors.MissingConfigMaps
+		globalErrors["missing_secrets"] = errors.MissingSecrets
+		globalErrors["warnings"] = errors.Warnings
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"errors": map[string]interface{}{
+			"connections": connectionErrors,
+			"global":      globalErrors,
+		},
 	})
 }

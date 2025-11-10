@@ -1,3 +1,10 @@
+## [1.13.0](https://github.com/cohandv/port-authorizing/compare/v1.12.1...v1.13.0) (2025-11-04)
+
+
+### Features
+
+* Added config using secrets/config maps ([a5038b9](https://github.com/cohandv/port-authorizing/commit/a5038b9ee3001e0e53987267e3ec24c304d43413))
+
 ## [1.12.1](https://github.com/cohandv/port-authorizing/compare/v1.12.0...v1.12.1) (2025-10-16)
 
 

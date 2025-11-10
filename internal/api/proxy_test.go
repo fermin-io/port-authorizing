@@ -17,10 +17,17 @@ func TestHandleProxyStream_PostgresConnection(t *testing.T) {
 			Port: 8080,
 		},
 		Auth: config.AuthConfig{
-			JWTSecret:   "test-secret",
+			JWTSecret: config.ConfigSource{
+				Type:  config.ConfigSourceTypePlain,
+				Value: "test-secret",
+			},
 			TokenExpiry: 24 * time.Hour,
 			Users: []config.User{
-				{Username: "admin", Password: "admin123", Roles: []string{"admin"}},
+				{
+					Username: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "admin"},
+					Password: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "admin123"},
+					Roles:    []string{"admin"},
+				},
 			},
 		},
 		Connections: []config.ConnectionConfig{
@@ -29,8 +36,8 @@ func TestHandleProxyStream_PostgresConnection(t *testing.T) {
 				Type:            "postgres",
 				Host:            "localhost",
 				Port:            5432,
-				BackendUsername: "dbuser",
-				BackendPassword: "dbpass",
+				BackendUsername: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "dbuser"},
+				BackendPassword: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "dbpass"},
 				BackendDatabase: "testdb",
 				Tags:            []string{"env:test"},
 			},
@@ -110,10 +117,17 @@ func TestHandleProxyStream_HTTPConnection(t *testing.T) {
 			Port: 8080,
 		},
 		Auth: config.AuthConfig{
-			JWTSecret:   "test-secret",
+			JWTSecret: config.ConfigSource{
+				Type:  config.ConfigSourceTypePlain,
+				Value: "test-secret",
+			},
 			TokenExpiry: 24 * time.Hour,
 			Users: []config.User{
-				{Username: "admin", Password: "admin123", Roles: []string{"admin"}},
+				{
+					Username: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "admin"},
+					Password: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "admin123"},
+					Roles:    []string{"admin"},
+				},
 			},
 		},
 		Connections: []config.ConnectionConfig{
@@ -192,10 +206,17 @@ func TestHandleProxyStream_InvalidConnectionID(t *testing.T) {
 			Port: 8080,
 		},
 		Auth: config.AuthConfig{
-			JWTSecret:   "test-secret",
+			JWTSecret: config.ConfigSource{
+				Type:  config.ConfigSourceTypePlain,
+				Value: "test-secret",
+			},
 			TokenExpiry: 24 * time.Hour,
 			Users: []config.User{
-				{Username: "admin", Password: "admin123", Roles: []string{"admin"}},
+				{
+					Username: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "admin"},
+					Password: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "admin123"},
+					Roles:    []string{"admin"},
+				},
 			},
 		},
 		Logging: config.LoggingConfig{
@@ -242,10 +263,17 @@ func TestHandleProxyStream_ExpiredConnection(t *testing.T) {
 			Port: 8080,
 		},
 		Auth: config.AuthConfig{
-			JWTSecret:   "test-secret",
+			JWTSecret: config.ConfigSource{
+				Type:  config.ConfigSourceTypePlain,
+				Value: "test-secret",
+			},
 			TokenExpiry: 24 * time.Hour,
 			Users: []config.User{
-				{Username: "admin", Password: "admin123", Roles: []string{"admin"}},
+				{
+					Username: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "admin"},
+					Password: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "admin123"},
+					Roles:    []string{"admin"},
+				},
 			},
 		},
 		Connections: []config.ConnectionConfig{
@@ -324,10 +352,17 @@ func BenchmarkHandleProxyStream(b *testing.B) {
 			Port: 8080,
 		},
 		Auth: config.AuthConfig{
-			JWTSecret:   "test-secret",
+			JWTSecret: config.ConfigSource{
+				Type:  config.ConfigSourceTypePlain,
+				Value: "test-secret",
+			},
 			TokenExpiry: 24 * time.Hour,
 			Users: []config.User{
-				{Username: "admin", Password: "admin123", Roles: []string{"admin"}},
+				{
+					Username: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "admin"},
+					Password: config.ConfigSource{Type: config.ConfigSourceTypePlain, Value: "admin123"},
+					Roles:    []string{"admin"},
+				},
 			},
 		},
 		Connections: []config.ConnectionConfig{

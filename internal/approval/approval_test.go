@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewManager(t *testing.T) {
-	mgr := NewManager(5 * time.Minute)
+	mgr := NewManager(5*time.Minute, "test")
 
 	if mgr == nil {
 		t.Fatal("NewManager returned nil")
@@ -19,7 +19,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestNewManager_DefaultTimeout(t *testing.T) {
-	mgr := NewManager(0)
+	mgr := NewManager(0, "test")
 
 	if mgr.defaultTimeout != 5*time.Minute {
 		t.Errorf("defaultTimeout = %v, want %v (default)", mgr.defaultTimeout, 5*time.Minute)
@@ -27,7 +27,7 @@ func TestNewManager_DefaultTimeout(t *testing.T) {
 }
 
 func TestManager_RegisterProvider(t *testing.T) {
-	mgr := NewManager(5 * time.Minute)
+	mgr := NewManager(5*time.Minute, "test")
 	provider := &mockProvider{name: "test"}
 
 	mgr.RegisterProvider(provider)
@@ -38,7 +38,7 @@ func TestManager_RegisterProvider(t *testing.T) {
 }
 
 func TestManager_AddApprovalPattern(t *testing.T) {
-	mgr := NewManager(5 * time.Minute)
+	mgr := NewManager(5*time.Minute, "test")
 
 	tests := []struct {
 		name     string
@@ -93,7 +93,7 @@ func TestManager_AddApprovalPattern(t *testing.T) {
 }
 
 func TestManager_RequiresApproval(t *testing.T) {
-	mgr := NewManager(5 * time.Minute)
+	mgr := NewManager(5*time.Minute, "test")
 	_ = mgr.AddApprovalPattern("^DELETE /.*", nil, "", 3*time.Minute)
 	_ = mgr.AddApprovalPattern("^POST /admin/.*", []string{"env:production"}, "all", 10*time.Minute)
 	_ = mgr.AddApprovalPattern("^PUT /.*", []string{"team:backend", "env:production"}, "any", 5*time.Minute)
@@ -178,7 +178,7 @@ func TestManager_RequiresApproval(t *testing.T) {
 }
 
 func TestManager_RequestApproval_NoProviders(t *testing.T) {
-	mgr := NewManager(5 * time.Minute)
+	mgr := NewManager(5*time.Minute, "test")
 
 	req := &Request{
 		Username: "alice",
@@ -195,7 +195,7 @@ func TestManager_RequestApproval_NoProviders(t *testing.T) {
 }
 
 func TestManager_RequestApproval_Timeout(t *testing.T) {
-	mgr := NewManager(5 * time.Minute)
+	mgr := NewManager(5*time.Minute, "test")
 	provider := &mockProvider{name: "test", delay: 2 * time.Second}
 	mgr.RegisterProvider(provider)
 
@@ -218,7 +218,7 @@ func TestManager_RequestApproval_Timeout(t *testing.T) {
 }
 
 func TestManager_SubmitApproval(t *testing.T) {
-	mgr := NewManager(5 * time.Minute)
+	mgr := NewManager(5*time.Minute, "test")
 	provider := &mockProvider{name: "test"}
 	mgr.RegisterProvider(provider)
 
@@ -278,7 +278,7 @@ func TestManager_SubmitApproval(t *testing.T) {
 }
 
 func TestManager_SubmitApproval_NotFound(t *testing.T) {
-	mgr := NewManager(5 * time.Minute)
+	mgr := NewManager(5*time.Minute, "test")
 
 	err := mgr.SubmitApproval("nonexistent-id", DecisionApproved, "bob", "test")
 
@@ -288,7 +288,7 @@ func TestManager_SubmitApproval_NotFound(t *testing.T) {
 }
 
 func TestManager_GetPendingRequest(t *testing.T) {
-	mgr := NewManager(5 * time.Minute)
+	mgr := NewManager(5*time.Minute, "test")
 	provider := &mockProvider{name: "test", delay: 10 * time.Second}
 	mgr.RegisterProvider(provider)
 
@@ -333,7 +333,7 @@ func TestManager_GetPendingRequest(t *testing.T) {
 }
 
 func TestManager_GetPendingRequestsCount(t *testing.T) {
-	mgr := NewManager(5 * time.Minute)
+	mgr := NewManager(5*time.Minute, "test")
 	provider := &mockProvider{name: "test", delay: 10 * time.Second}
 	mgr.RegisterProvider(provider)
 
@@ -378,7 +378,7 @@ func (m *mockProvider) GetProviderName() string {
 }
 
 func BenchmarkManager_RequiresApproval(b *testing.B) {
-	mgr := NewManager(5 * time.Minute)
+	mgr := NewManager(5*time.Minute, "test")
 	_ = mgr.AddApprovalPattern("^DELETE /.*", nil, "", 5*time.Minute)
 	_ = mgr.AddApprovalPattern("^POST /admin/.*", []string{"env:production"}, "all", 5*time.Minute)
 	_ = mgr.AddApprovalPattern("^PUT /api/users/.*", nil, "", 5*time.Minute)

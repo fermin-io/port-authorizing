@@ -7,7 +7,7 @@ set -e
 
 echo "🚀 Port Authorizing End-to-End Test Suite"
 echo "=========================================="
-echo ""
+echo " "
 
 # Colors for output
 GREEN='\033[0;32m'

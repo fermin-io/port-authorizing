@@ -683,12 +683,18 @@ func TestPostgresConnectionNoProxy(t *testing.T) {
 	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	connConfig := &config.ConnectionConfig{
-		Name:            "test-postgres",
-		Type:            "postgres",
-		Host:            "localhost",
-		Port:            5432,
-		BackendUsername: "testuser",
-		BackendPassword: "testpass",
+		Name: "test-postgres",
+		Type: "postgres",
+		Host: "localhost",
+		Port: 5432,
+		BackendUsername: config.ConfigSource{
+			Type:  config.ConfigSourceTypePlain,
+			Value: "testuser",
+		},
+		BackendPassword: config.ConfigSource{
+			Type:  config.ConfigSourceTypePlain,
+			Value: "testpass",
+		},
 		BackendDatabase: "testdb",
 	}
 

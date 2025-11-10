@@ -122,7 +122,7 @@ func (a *AuthService) generateToken(userInfo *auth.UserInfo) (string, time.Time,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte(a.config.Auth.JWTSecret))
+	tokenString, err := token.SignedString([]byte(a.config.Auth.JWTSecret.Value))
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -136,7 +136,7 @@ func (a *AuthService) validateToken(tokenString string) (*Claims, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		return []byte(a.config.Auth.JWTSecret), nil
+		return []byte(a.config.Auth.JWTSecret.Value), nil
 	})
 
 	if err != nil {

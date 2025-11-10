@@ -2,8 +2,10 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -44,16 +46,18 @@ type PostgresProxy struct {
 	username     string // API username (for audit logging)
 	connectionID string
 	apiConfig    *config.Config // Full API config for user validation
+	resolver     *config.ConfigSourceResolver
 }
 
 // NewPostgresProxy creates a new PostgreSQL protocol-aware proxy
-func NewPostgresProxy(cfg *config.ConnectionConfig, auditLogPath, username, connectionID string, apiConfig *config.Config) *PostgresProxy {
+func NewPostgresProxy(cfg *config.ConnectionConfig, auditLogPath, username, connectionID string, apiConfig *config.Config, resolver *config.ConfigSourceResolver) *PostgresProxy {
 	return &PostgresProxy{
 		config:       cfg,
 		auditLogPath: auditLogPath,
 		username:     username,
 		connectionID: connectionID,
 		apiConfig:    apiConfig,
+		resolver:     resolver,
 	}
 }
 
@@ -181,6 +185,33 @@ func (p *PostgresProxy) HandleConnection(clientConn net.Conn) error {
 		backendDatabase = requestedDatabase
 	}
 
+	// Resolve backend credentials dynamically (with caching)
+	ctx := context.Background()
+	backendUsername := p.config.BackendUsername.Value
+	backendPassword := p.config.BackendPassword.Value
+
+	// Resolve username if it's from ConfigMap/Secret
+	if p.resolver != nil && (p.config.BackendUsername.Type == config.ConfigSourceTypeConfigMap || p.config.BackendUsername.Type == config.ConfigSourceTypeSecret) {
+		resolvedUsername, exists, err := p.resolver.ResolveConfigSource(ctx, p.config.BackendUsername)
+		if err != nil || !exists {
+			log.Printf("Warning: Failed to resolve backend username for connection %s: %v (using stored value)", p.config.Name, err)
+		} else {
+			backendUsername = resolvedUsername
+			log.Printf("DEBUG: Resolved backend username for connection %s (type: %s)", p.config.Name, p.config.BackendUsername.Type)
+		}
+	}
+
+	// Resolve password if it's from ConfigMap/Secret
+	if p.resolver != nil && (p.config.BackendPassword.Type == config.ConfigSourceTypeConfigMap || p.config.BackendPassword.Type == config.ConfigSourceTypeSecret) {
+		resolvedPassword, exists, err := p.resolver.ResolveConfigSource(ctx, p.config.BackendPassword)
+		if err != nil || !exists {
+			log.Printf("Warning: Failed to resolve backend password for connection %s: %v (using stored value)", p.config.Name, err)
+		} else {
+			backendPassword = resolvedPassword
+			log.Printf("DEBUG: Resolved backend password for connection %s (type: %s)", p.config.Name, p.config.BackendPassword.Type)
+		}
+	}
+
 	// Connect to backend
 	backendConn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", p.config.Host, p.config.Port), 10*time.Second)
 	if err != nil {
@@ -195,7 +226,7 @@ func (p *PostgresProxy) HandleConnection(clientConn net.Conn) error {
 
 	// Send startup to backend
 	startupParams := map[string]string{
-		"user":     p.config.BackendUsername,
+		"user":     backendUsername,
 		"database": backendDatabase,
 	}
 	startupBuf, err := (&pgproto3.StartupMessage{
@@ -208,7 +239,7 @@ func (p *PostgresProxy) HandleConnection(clientConn net.Conn) error {
 	_, _ = backendConn.Write(startupBuf)
 
 	// Handle backend authentication
-	if err := p.authenticateToBackend(frontend, backendConn); err != nil {
+	if err := p.authenticateToBackend(frontend, backendConn, backendPassword); err != nil {
 		p.sendError(clientConn, "08006", "backend authentication failed")
 		return fmt.Errorf("backend authentication failed: %w", err)
 	}
@@ -236,7 +267,7 @@ func (p *PostgresProxy) HandleConnection(clientConn net.Conn) error {
 }
 
 // authenticateToBackend handles backend authentication
-func (p *PostgresProxy) authenticateToBackend(frontend *pgproto3.Frontend, conn net.Conn) error {
+func (p *PostgresProxy) authenticateToBackend(frontend *pgproto3.Frontend, conn net.Conn, password string) error {
 	for {
 		msg, err := frontend.Receive()
 		if err != nil {
@@ -248,7 +279,7 @@ func (p *PostgresProxy) authenticateToBackend(frontend *pgproto3.Frontend, conn 
 			continue
 
 		case *pgproto3.AuthenticationCleartextPassword:
-			pwdMsg := &pgproto3.PasswordMessage{Password: p.config.BackendPassword}
+			pwdMsg := &pgproto3.PasswordMessage{Password: password}
 			buf, err := pwdMsg.Encode(nil)
 			if err != nil {
 				return err
@@ -416,7 +447,7 @@ func (p *PostgresProxy) validateAPICredentials(username, password string) bool {
 	}
 
 	for _, user := range p.apiConfig.Auth.Users {
-		if user.Username == username && user.Password == password {
+		if user.Username.Value == username && user.Password.Value == password {
 			return true
 		}
 	}

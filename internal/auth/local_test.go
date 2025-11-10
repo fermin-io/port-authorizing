@@ -9,14 +9,26 @@ import (
 func TestLocalProvider_Authenticate(t *testing.T) {
 	users := []config.User{
 		{
-			Username: "admin",
-			Password: "admin123",
-			Roles:    []string{"admin", "developer"},
+			Username: config.ConfigSource{
+				Type:  config.ConfigSourceTypePlain,
+				Value: "admin",
+			},
+			Password: config.ConfigSource{
+				Type:  config.ConfigSourceTypePlain,
+				Value: "admin123",
+			},
+			Roles: []string{"admin", "developer"},
 		},
 		{
-			Username: "developer",
-			Password: "dev123",
-			Roles:    []string{"developer"},
+			Username: config.ConfigSource{
+				Type:  config.ConfigSourceTypePlain,
+				Value: "developer",
+			},
+			Password: config.ConfigSource{
+				Type:  config.ConfigSourceTypePlain,
+				Value: "dev123",
+			},
+			Roles: []string{"developer"},
 		},
 	}
 
@@ -134,8 +146,20 @@ func TestLocalProvider_Type(t *testing.T) {
 
 func TestNewLocalProvider(t *testing.T) {
 	users := []config.User{
-		{Username: "user1", Password: "pass1", Roles: []string{"role1"}},
-		{Username: "user2", Password: "pass2", Roles: []string{"role2"}},
+		{Username: config.ConfigSource{
+			Type:  config.ConfigSourceTypePlain,
+			Value: "user1",
+		}, Password: config.ConfigSource{
+			Type:  config.ConfigSourceTypePlain,
+			Value: "pass1",
+		}, Roles: []string{"role1"}},
+		{Username: config.ConfigSource{
+			Type:  config.ConfigSourceTypePlain,
+			Value: "user2",
+		}, Password: config.ConfigSource{
+			Type:  config.ConfigSourceTypePlain,
+			Value: "pass2",
+		}, Roles: []string{"role2"}},
 	}
 
 	provider := NewLocalProvider(users)
